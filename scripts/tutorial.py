@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from botorch import fit_gpytorch_model
-from botorch.acquisition.monte_carlo import qExpectedImprovement, qProbabilityOfImprovement
+from botorch.acquisition.monte_carlo import qExpectedImprovement, qProbabilityOfImprovement, qUpperConfidenceBound
+from botorch.acquisition.max_value_entropy_search import qMaxValueEntropy
 from botorch.models import ModelListGP, SingleTaskGP
 from botorch.optim import optimize_acqf
 from gpytorch.mlls.exact_marginal_log_likelihood import \
@@ -31,7 +32,7 @@ def plot_target_function():
 
 # to train gaussian process regressors for new iteration point
 def generate_random_initial_data(num_points=10):
-    train_x = torch.rand(num_points, 1)  # type(tensor) and num_pointsx1 array of random floats
+    train_x = torch.rand(num_points, 1) * 12 - 2  # type(tensor) and num_pointsx1 array of random floats
     exact_obj = target_function(train_x).unsqueeze(-1)  # 1 row of num_points -> num_points columns of 1 (for single-objective optimization)
     best_observed_value = exact_obj.max().item()  # get max value
     return train_x, exact_obj, best_observed_value
@@ -49,8 +50,10 @@ def get_next_points(init_x, init_y, best_init_y, bounds, num_points=1):
     mll = ExactMarginalLogLikelihood(single_model.likelihood, single_model)  # for uncertainty quantification
     fit_gpytorch_model(mll)
 
-    acq = qExpectedImprovement(model=single_model, best_f=best_init_y)  # for function without noise
+    # acq = qExpectedImprovement(model=single_model, best_f=best_init_y)  # for function without noise
+    acq = qUpperConfidenceBound(model=single_model, beta=2)
     # acq = qProbabilityOfImprovement(model=single_model, best_f=best_init_y)
+    # acq = qMaxValueEntropy(single_model, candidate_set=init_x)
 
 
     candidates, _ = optimize_acqf(acq_function=acq,
@@ -62,8 +65,9 @@ def get_next_points(init_x, init_y, best_init_y, bounds, num_points=1):
 
     return candidates, single_model
 
-num_iterations = 20
-init_x, init_y, best_init_y = generate_random_initial_data()
+plot_target_function()
+num_iterations = 10
+init_x, init_y, best_init_y = generate_random_initial_data(num_points=10)
 bounds = torch.tensor([[0.0], [10.0]])  # one input of domain [0 to 10]
 # bounds = touch.tensor([[0.0, 1.0]. [10.0, 9.0]])  # same input as above and another input of domain [1 to 9]
 
