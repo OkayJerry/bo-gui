@@ -18,7 +18,8 @@ def target_function(points):
     result = []
     for pnt in points:
         x = pnt[0]
-        fn = np.exp(-(x - 2)**2) + np.exp(-(x - 6)**2/10) + 1 / (x**2 + 1)
+        # fn = np.exp(-(x - 2)**2) + np.exp(-(x - 6)**2/10) + 1 / (x**2 + 1)
+        fn = np.sin(x * 2 * np.pi)
         # f(x) = e^(-(x - 2)^2) + e^((-(x - 6)^2) / 10) + (1 / (x^2+1))
         result.append(fn)
     return torch.tensor(result)
@@ -51,7 +52,7 @@ def get_next_points(init_x, init_y, best_init_y, bounds, num_points=1):
     fit_gpytorch_model(mll)
 
     # acq = qExpectedImprovement(model=single_model, best_f=best_init_y)  # for function without noise
-    acq = qUpperConfidenceBound(model=single_model, beta=2)
+    acq = qUpperConfidenceBound(model=single_model, beta=4)
     # acq = qProbabilityOfImprovement(model=single_model, best_f=best_init_y)
     # acq = qMaxValueEntropy(single_model, candidate_set=init_x)
 
@@ -65,9 +66,9 @@ def get_next_points(init_x, init_y, best_init_y, bounds, num_points=1):
 
     return candidates, single_model
 
-plot_target_function()
+# plot_target_function()
 num_iterations = 10
-init_x, init_y, best_init_y = generate_random_initial_data(num_points=10)
+init_x, init_y, best_init_y = generate_random_initial_data(num_points=3)
 bounds = torch.tensor([[0.0], [10.0]])  # one input of domain [0 to 10]
 # bounds = touch.tensor([[0.0, 1.0]. [10.0, 9.0]])  # same input as above and another input of domain [1 to 9]
 
@@ -100,6 +101,7 @@ with torch.no_grad():
     ax.plot(test_X.cpu().numpy(), posterior.mean.cpu().numpy(), 'b')
     # Shade between the lower and upper confidence bounds
     ax.fill_between(test_X.cpu().numpy(), lower.cpu().numpy(), upper.cpu().numpy(), alpha=0.5)
+plt.savefig('/Users/geraldhoskins/frib/bo-gui')
 ax.legend(['Observed Data', 'Mean', 'Confidence'])
 plt.tight_layout()
 plt.show()
