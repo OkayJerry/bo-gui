@@ -101,7 +101,7 @@ with torch.no_grad():
     ax.plot(test_X.cpu().numpy(), posterior.mean.cpu().numpy(), 'b')
     # Shade between the lower and upper confidence bounds
     ax.fill_between(test_X.cpu().numpy(), lower.cpu().numpy(), upper.cpu().numpy(), alpha=0.5)
-plt.savefig('/Users/geraldhoskins/frib/bo-gui')
+plt.savefig('/Users/geraldhoskins/frib/bo-gui/figure')
 ax.legend(['Observed Data', 'Mean', 'Confidence'])
 plt.tight_layout()
 plt.show()
