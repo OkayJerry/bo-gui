@@ -1,3 +1,6 @@
+from classes import interactiveGPBO
+
+
 def init():
     from sys import argv
     from PyQt5.QtWidgets import QApplication
@@ -5,6 +8,7 @@ def init():
     
     global app
     global main_window
+    global interactive_GPBO
     
     app = QApplication(argv)
     main_window = MainWindow()

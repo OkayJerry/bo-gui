@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
+import numpy as np
 
 class Table(QTableWidget):
     def __init__(self, rows, columns, parent=None):
@@ -8,30 +9,39 @@ class Table(QTableWidget):
         self.setAlternatingRowColors(True)
         
         horizontal_header = self.horizontalHeader()
-        vertical_header = self.verticalHeader()
         horizontal_header.setSectionResizeMode(QHeaderView.Stretch)
         
-        for header in [horizontal_header, vertical_header]:
-            header.setContextMenuPolicy(Qt.CustomContextMenu)
-            header.customContextMenuRequested.connect(self.customHeaderMenuRequested)
+        horizontal_header.setContextMenuPolicy(Qt.CustomContextMenu)
+        horizontal_header.customContextMenuRequested.connect(self.customHeaderMenuRequested)
+
+        for row in range(rows):
+            for column in range(columns):
+                item = QTableWidgetItem()
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setText('0')
+                self.setItem(row, column, item)
             
     def customHeaderMenuRequested(self, pos):
         from classes.utility import HeaderContextMenu
         
-        if self.horizontalHeader().underMouse():
-            header = self.horizontalHeader()
-        else:
-            header = self.verticalHeader()
-
-        menu = HeaderContextMenu(header)
-        menu.popup(header.viewport().mapToGlobal(pos))
-
+        menu = HeaderContextMenu(self.indexAt(pos).column(), self)
+        menu.popup(self.horizontalHeader().viewport().mapToGlobal(pos))
+        
+    def getArray(self):
+        array = []
+        for i in range(self.rowCount()):
+            array.append([])
+            for j in range(self.columnCount()):
+                array[i].append(np.float64(self.item(i, j).text()))
+        print(np.array(array))
+        return np.array(array)
+    
+    
 class DecisionParameterTable(Table):
     def __init__(self, rows, columns, parent=None):
         super().__init__(rows, columns, parent)
         self.setHorizontalHeaderLabels([f'x0[{i}]' for i in range(columns)])
-            
-        
+    
 class ObjectiveTable(Table):
     def __init__(self, rows, parent=None):
         super().__init__(rows, 1, parent)
