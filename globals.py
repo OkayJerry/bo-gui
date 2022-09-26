@@ -9,6 +9,12 @@ def init():
     global app
     global main_window
     global interactive_GPBO
+    global acq_widgets
+    global tables
+    
+    acq_widgets = []
+    tables = []
+    interactive_GPBO = None
     
     app = QApplication(argv)
     main_window = MainWindow()
