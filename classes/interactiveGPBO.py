@@ -24,6 +24,26 @@ from torch import Tensor
 import warnings
 warnings.filterwarnings("ignore")
 
+def addColorBar(ax, data, y_grid):
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    import globals as glb
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    num_ticks = 5
+    max_ygrid = max(y_grid)
+    min_ygrid = min(y_grid)
+    range_ygrid = max_ygrid - min_ygrid
+    tick_difference = range_ygrid / (num_ticks - 1)
+    ticks = [max_ygrid]
+    for i in range(num_ticks):
+        ticks.append(max_ygrid - i * tick_difference)
+    cbar = ax.get_figure().colorbar(data, cax=cax, ticks=ticks)
+    
+    if ax in glb.main_window.canvas_colorbars.keys():
+        glb.main_window.canvas_colorbars[ax].remove()
+                
+    glb.main_window.canvas_colorbars[ax] = cbar
 
 class simpleNN(torch.nn.Module):
     def __init__(self, n_decision, n_env,
@@ -604,7 +624,7 @@ class InteractiveGPBO(QObject):
             fig, ax = plt.subplots(figsize=(4, 4))
         elif axes:
             for ax in axes:
-                ax.tricontourf(
+                data = ax.tricontourf(
                     x_grid[:, dim_xaxis], x_grid[:, dim_yaxis], y_grid, levels=64, cmap="viridis")
                 if self.dim > 2:
                     tag = "projected "
@@ -614,9 +634,12 @@ class InteractiveGPBO(QObject):
                            c="b", label=tag + "training data")
                 ax.scatter(x1[:, dim_xaxis], x1[:, dim_yaxis],
                            c="r", label=tag + "candidate")
+                
+                cbar = addColorBar(ax, data, y_grid)
+                
             return axes
 
-        ax.tricontourf(x_grid[:, dim_xaxis], x_grid[:,
+        data = ax.tricontourf(x_grid[:, dim_xaxis], x_grid[:,
                        dim_yaxis], y_grid, levels=64, cmap="viridis")
         if self.dim > 2:
             tag = "projected "
@@ -626,6 +649,9 @@ class InteractiveGPBO(QObject):
                    c="b", label=tag + "training data")
         ax.scatter(x1[:, dim_xaxis], x1[:, dim_yaxis],
                    c="r", label=tag + "candidate")
+        
+        addColorBar(ax, data, y_grid)
+        
         return ax
         # import inspect
         # print(inspect.stack()[0][3])
@@ -730,7 +756,7 @@ class InteractiveGPBO(QObject):
             fig, ax = plt.subplots(figsize=(4, 4))
         elif axes:
             for ax in axes:
-                ax.tricontourf(
+                data = ax.tricontourf(
                     x_grid[:, dim_xaxis], x_grid[:, dim_yaxis], y_grid, levels=64, cmap="viridis")
                 if self.dim > 2:
                     tag = "projected "
@@ -740,9 +766,12 @@ class InteractiveGPBO(QObject):
                            c="b", label=tag + "training data")
                 ax.scatter(x1[:, dim_xaxis], x1[:, dim_yaxis],
                            c="r", label=tag + "candidate")
+
+                addColorBar(ax, data, y_grid)
+                
             return axes
 
-        ax.tricontourf(x_grid[:, dim_xaxis], x_grid[:,
+        data = ax.tricontourf(x_grid[:, dim_xaxis], x_grid[:,
                        dim_yaxis], y_grid, levels=64, cmap="viridis")
         if self.dim > 2:
             tag = "projected "
@@ -752,6 +781,9 @@ class InteractiveGPBO(QObject):
                    c="b", label=tag + "training data")
         ax.scatter(x1[:, dim_xaxis], x1[:, dim_yaxis],
                    c="r", label=tag + "candidate")
+        
+        addColorBar(ax, data, y_grid)
+        
         return ax
         # import inspect
         # print(inspect.stack()[0][3])

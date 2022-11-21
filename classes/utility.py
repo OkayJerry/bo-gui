@@ -40,6 +40,7 @@ class HorizontalHeaderContextMenu(QMenu):
             parent_table.horizontalHeaderItem(index).setText(new_header)
             if parent_table is glb.main_window.initial_x_table:
                 glb.main_window.bounds_table.horizontalHeaderItem(index).setText(new_header)
+                glb.main_window.weight_table.verticalHeaderItem(index).setText(new_header)
                 
             elif parent_table is glb.main_window.iteration_x_table:
                 eval_table = glb.main_window.evaluation_point_groupbox.evaluation_point_table
@@ -92,11 +93,15 @@ class HorizontalHeaderContextMenu(QMenu):
                 glb.main_window.bounds_table.insertColumn(index)
             elif parent_table == glb.main_window.bounds_table:
                 glb.main_window.initial_x_table.insertColumn(index)
+                
+            glb.main_window.weight_table.insertRow(index)
         else:
             if parent_table == glb.main_window.initial_x_table:
                 glb.main_window.bounds_table.removeColumn(index)
             elif parent_table == glb.main_window.bounds_table:
                 glb.main_window.initial_x_table.removeColumn(index)
+
+            glb.main_window.weight_table.removeRow(index)
 
             glb.main_window.bounds_table.horizontalHeader().resizeSections(QHeaderView.Stretch)
             glb.main_window.initial_x_table.horizontalHeader().resizeSections(QHeaderView.Stretch)
@@ -227,8 +232,8 @@ class IterateButton(QPushButton):
             #     f'acquisition function: {glb.interactive_GPBO.acquisition_func}\n',
             #     f'acquisition arguments: {acq_args}\n',
             #     f'Regularization Coefficient: {reg_coeff}')
-            
             glb.main_window.progress_dialog.reset()
+            glb.main_window.progress_dialog.setNumPlots(2)
             glb.interactive_GPBO.run(x, y, batch_size, acq_args)
         else:
              QMessageBox.critical(self, 'ERROR', 'Iteration array(s) incomplete.', QMessageBox.Ok)
@@ -331,6 +336,7 @@ class MenuBar(QMenuBar):
         initial_x_table = main_window.initial_x_table
         initial_y_table = main_window.initial_y_table
         boundry_table = main_window.bounds_table
+        weight_table = main_window.weight_table
 
         initial_x_table.setColumnCount(len(data['xheader']))
         initial_x_table.setRowCount(len(data['xdata']))
@@ -352,6 +358,12 @@ class MenuBar(QMenuBar):
             boundry_table.setItem(0, i, DoubleTableItem(val))
         for i, val in enumerate(data['bounds']['max']):
             boundry_table.setItem(1, i, DoubleTableItem(val))
+            
+        weight_table.setRowCount(len(data['xheader']))
+        for i, header in enumerate(data['xheader']):
+            weight_table.setItem(i, 0, DoubleTableItem(1))
+            weight_table.setVerticalHeaderItem(i, TableItem(header))
+            
 class InitializeButton(QPushButton):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -424,6 +436,7 @@ class InitializeButton(QPushButton):
             #       f'Regularization Coefficient: {reg_coeff}')
 
             progress_dialog = glb.main_window.progress_dialog
+            progress_dialog.setNumPlots(2)
             glb.interactive_GPBO = GPBO(x0, y0, bounds=bounds, acquisition_func=acq_func,
                                         acquisition_func_args=acq_args, L2reg=reg_coeff)
 
@@ -582,8 +595,7 @@ class AcqPostButton(QRadioButton):
         preview_canvas = glb.main_window.preview_canvas
         canvas = glb.main_window.canvas
             
-        # preview_canvas.clear()
-        # canvas.clear()
+        self.setChecked(True)
         
         acq_axes = [preview_canvas.acquisition_ax, canvas.acquisition_ax]
         post_axes = [preview_canvas.posterior_ax, canvas.posterior_ax]
@@ -596,6 +608,7 @@ class AcqPostButton(QRadioButton):
             glb.main_window.acq_fix_update_button.setEnabled(False)
             for ax in acq_axes:
                 ax.clear()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_aquisition_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=acq_axes, project_minimum=True)
             
         elif self is glb.main_window.acq_mean_button:
@@ -605,6 +618,7 @@ class AcqPostButton(QRadioButton):
             glb.main_window.acq_fix_update_button.setEnabled(False)
             for ax in acq_axes:
                 ax.clear()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_aquisition_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=acq_axes, project_mean=True, project_minimum=False)
 
         elif self is glb.main_window.acq_fix_button:
@@ -616,6 +630,7 @@ class AcqPostButton(QRadioButton):
             for ax in acq_axes:
                 ax.clear()
             d = glb.main_window.acq_fixed_table.getFixedDimValues()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_aquisition_2D_projection(axes=acq_axes, project_minimum=False, project_mean=False, fixed_values_for_each_dim=d)
         
         elif self is glb.main_window.post_min_button:
@@ -625,6 +640,7 @@ class AcqPostButton(QRadioButton):
             glb.main_window.post_fix_update_button.setEnabled(False)
             for ax in post_axes:
                 ax.clear()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_GPmean_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=post_axes, project_minimum=True)
             
         elif self is glb.main_window.post_mean_button:
@@ -634,6 +650,7 @@ class AcqPostButton(QRadioButton):
             glb.main_window.post_fix_update_button.setEnabled(False)
             for ax in post_axes:
                 ax.clear()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_GPmean_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=post_axes, project_mean=True, project_minimum=False)
             
         elif self is glb.main_window.post_fix_button:
@@ -645,6 +662,7 @@ class AcqPostButton(QRadioButton):
             for ax in post_axes:
                 ax.clear()
             d = glb.main_window.acq_fixed_table.getFixedDimValues()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_GPmean_2D_projection(axes=post_axes, project_minimum=False, project_mean=False, fixed_values_for_each_dim=d)
         
         preview_canvas.quickFormat(epoch=epoch)
@@ -730,10 +748,12 @@ class AxisComboBox(QComboBox):
                     if i == 0:
                         for ax in acq_axes:
                             ax.clear()
+                        glb.main_window.progress_dialog.setNumPlots(1)
                         glb.interactive_GPBO.plot_aquisition_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=acq_axes, project_minimum=True)
                     elif i == 1:
                         for ax in acq_axes:
                             ax.clear()
+                        glb.main_window.progress_dialog.setNumPlots(1)
                         glb.interactive_GPBO.plot_aquisition_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=acq_axes, project_mean=True, project_minimum=False)
                     else:
                         pass # TBD
@@ -745,10 +765,12 @@ class AxisComboBox(QComboBox):
                     if i == 0:
                         for ax in post_axes:
                             ax.clear()
+                        glb.main_window.progress_dialog.setNumPlots(1)
                         glb.interactive_GPBO.plot_GPmean_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=post_axes, project_minimum=True)
                     elif i == 1:
                         for ax in post_axes:
                             ax.clear()
+                        glb.main_window.progress_dialog.setNumPlots(1)
                         glb.interactive_GPBO.plot_GPmean_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, epoch=epoch, axes=post_axes, project_mean=True, project_minimum=False)
                     else:
                         pass # TBD
@@ -778,6 +800,7 @@ class AcqPostFixUpdateButton(QPushButton):
             y_axis = glb.main_window.acq_fixed_table.getAxisIndex(glb.main_window.acq_y_combobox.currentText())
             for ax in acq_axes:
                 ax.clear()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_aquisition_2D_projection(dim_xaxis=x_axis, dim_yaxis=y_axis, axes=acq_axes, project_minimum=False, project_mean=False, fixed_values_for_each_dim=d)
         else:
             d = glb.main_window.post_fixed_table.getFixedDimValues()
@@ -785,6 +808,7 @@ class AcqPostFixUpdateButton(QPushButton):
             y_axis = glb.main_window.post_fixed_table.getAxisIndex(glb.main_window.post_y_combobox.currentText())
             for ax in post_axes:
                 ax.clear()
+            glb.main_window.progress_dialog.setNumPlots(1)
             glb.interactive_GPBO.plot_GPmean_2D_iprojection(dim_xaxis=x_axis, dim_yaxis=y_axis, axes=post_axes, project_minimum=False, project_mean=False, fixed_values_for_each_dim=d)
             
         glb.main_window.preview_canvas.quickFormat(epoch=epoch)
@@ -796,17 +820,19 @@ class ProgressDialog(QProgressDialog):
     def __init__(self, parent=None):
         super().__init__('Loading...', 'Cancel', 1, 1020, parent)
         
-        self.cancel() # necessary because QProgressDialog opens up automatically following construction
+        self.cancel() # necessary because QProgressDialog opens up automatically following construction/initialization
         self.setWindowTitle('Optimization')
         self.setWindowModality(Qt.WindowModal)
         self.setCancelButton(None)
 
-    def handle(self, value: int):
+    def handle(self, value: int, num_plots=2):
         if not self.isVisible():
             self.show()
-            
-        print(f'Value: {self.value()} + {value}')
+        
         self.setValue(self.value() + value)
-        # print(f'Value Set: {self.value}')
-        # elif self.value() >= self.maximum():
-        #     self.reset()
+
+    def setNumPlots(self, num_plots=2):
+        if num_plots == 2 and self.maximum() != 1020:
+            self.setMaximum(1020)
+        elif num_plots == 1 and self.maximum() != 510:
+            self.setMaximum(510)

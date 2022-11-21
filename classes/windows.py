@@ -16,6 +16,7 @@ class MainWindow(QMainWindow):
         self.setMenuBar(MenuBar(self))
 
         self.progress_dialog = ProgressDialog(self)
+        self.canvas_colorbars = {}
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.createInitializationPage(), 'Initialization')
@@ -23,13 +24,45 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.createPlotsPage(), 'Plots')
         self.tabs.setTabEnabled(1, False)
         self.tabs.setTabEnabled(2, False)
+        self.tabs.tabBarClicked.connect(self.handleTightLayoutTab)
 
         central_layout = QHBoxLayout()
         central_layout.addWidget(self.tabs)
         self.centralWidget().setLayout(central_layout)
 
+    # def resizeEvent(self, event):
+    #     import threading
+    #     QMainWindow.resizeEvent(self, event)
+
+    #     def adjust():
+    #         self.preview_canvas.figure.tight_layout()
+    #         self.canvas.figure.tight_layout()
+    #         self.preview_canvas.draw_idle()
+    #         self.canvas.draw_idle()
+    #     thread = threading.Thread(target=adjust)
+    #     thread.start()
+
+    def handleTightLayoutTab(self, index):
+        import threading
+        import time
+
+        if index == 1:
+            def preview_canvas_fix():
+                time.sleep(0.1)
+                self.preview_canvas.figure.tight_layout()
+                self.preview_canvas.draw_idle()
+            thread = threading.Thread(target=preview_canvas_fix)
+            thread.start()
+        elif index == 2:
+            def canvas_fix():
+                time.sleep(0.1)
+                self.canvas.figure.tight_layout()
+                self.canvas.draw_idle()
+            thread = threading.Thread(target=canvas_fix)
+            thread.start()
+
     def createInitializationPage(self):
-        from classes.tables import DecisionParameterTable, ObjectiveTable, BoundryTable
+        from classes.tables import DecisionParameterTable, ObjectiveTable, BoundryTable, RampingWeightTable
         from classes.utility import AcquisitionWidget, InitializeButton
 
         # data
@@ -70,6 +103,7 @@ class MainWindow(QMainWindow):
         acq_groupbox.setLayout(acq_layout)
 
         # optional
+        self.weight_table = RampingWeightTable(1)
         self.reg_coeff_spinbox = QSpinBox()
         self.bounds_corners_check_box = QCheckBox()
         self.log_data_path_line_edit = QLineEdit()
@@ -79,21 +113,22 @@ class MainWindow(QMainWindow):
         self.log_data_path_line_edit.setText(os.getcwd())
 
         opt_layout = QGridLayout()
-        opt_layout.addWidget(
-            QLabel('Regularization Coefficient:'), 0, 0, 1, 1, alignment=Qt.AlignRight)
-        opt_layout.addWidget(self.reg_coeff_spinbox, 0, 1, 1, 1)
-        opt_layout.addWidget(QLabel('Avoid Bound Corners:'),
+        opt_layout.addWidget(self.weight_table, 0, 0, 1, 2)
+        opt_layout.addWidget(QLabel('Regularization Coefficient:'),
                              1, 0, 1, 1, alignment=Qt.AlignRight)
-        opt_layout.addWidget(self.bounds_corners_check_box, 1, 1, 1, 1)
-        opt_layout.addWidget(QLabel('Log Data Path:'), 2,
-                             0, 1, 1, alignment=Qt.AlignRight)
-        opt_layout.addWidget(self.log_data_path_line_edit, 2, 1, 1, 1)
-        opt_layout.addWidget(QLabel('Prior Mean Model Path:'),
+        opt_layout.addWidget(self.reg_coeff_spinbox, 1, 1, 1, 1)
+        opt_layout.addWidget(QLabel('Avoid Bound Corners:'),
+                             2, 0, 1, 1, alignment=Qt.AlignRight)
+        opt_layout.addWidget(self.bounds_corners_check_box, 2, 1, 1, 1)
+        opt_layout.addWidget(QLabel('Log Data Path:'),
                              3, 0, 1, 1, alignment=Qt.AlignRight)
-        opt_layout.addWidget(self.prior_mean_model_path_line_edit, 3, 1, 1, 1)
-        opt_layout.addWidget(
-            QLabel('Prior Mean Auxiliary Arguments:'), 4, 0, 1, 1, alignment=Qt.AlignRight)
-        opt_layout.addWidget(self.aux_arguments_line_edit, 4, 1, 1, 1)
+        opt_layout.addWidget(self.log_data_path_line_edit, 3, 1, 1, 1)
+        opt_layout.addWidget(QLabel('Prior Mean Model Path:'),
+                             4, 0, 1, 1, alignment=Qt.AlignRight)
+        opt_layout.addWidget(self.prior_mean_model_path_line_edit, 4, 1, 1, 1)
+        opt_layout.addWidget(QLabel('Prior Mean Auxiliary Arguments:'),
+                             5, 0, 1, 1, alignment=Qt.AlignRight)
+        opt_layout.addWidget(self.aux_arguments_line_edit, 5, 1, 1, 1)
 
         opt_groupbox = QGroupBox('Optional')
         opt_groupbox.setLayout(opt_layout)
@@ -149,6 +184,8 @@ class MainWindow(QMainWindow):
         self.iteration_batch_spin_box = QSpinBox()
         self.iteration_batch_spin_box.setRange(1, 100)
         self.iteration_beta_spin_box = QDoubleSpinBox()
+        self.plot_button = QCheckBox()
+        self.plot_button.setChecked(True)
 
         control_layout = QGridLayout()
         control_layout.addWidget(
@@ -157,6 +194,9 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(
             QLabel('Beta:'), 1, 0, 1, 1, alignment=Qt.AlignRight)
         control_layout.addWidget(self.iteration_beta_spin_box, 1, 1, 1, 2)
+        control_layout.addWidget(
+            QLabel('Draw Plot:'), 2, 0, 1, 1, alignment=Qt.AlignRight)
+        control_layout.addWidget(self.plot_button, 2, 1, 1, 2)
 
         control_groupbox = QGroupBox('Control')
         control_groupbox.setLayout(control_layout)
@@ -221,7 +261,7 @@ class MainWindow(QMainWindow):
         return main_qwidget
 
     def createPlotsPage(self):
-        from classes.canvas import Canvas
+        from classes.canvas import Canvas, NavigationToolbar
         from classes.utility import AcqPostButton, AxisComboBox, AcqPostFixUpdateButton
         from classes.tables import AcqPostFixTable
 
@@ -290,6 +330,17 @@ class MainWindow(QMainWindow):
         post_groupbox.setLayout(post_layout)
 
         # main
+        left_qwidget = QWidget()
+        self.nav_toolbar = NavigationToolbar(self.canvas, left_qwidget)
+
+        left_layout = QGridLayout()
+        left_layout.addWidget(self.nav_toolbar, 0, 1, 1,
+                              1, alignment=Qt.AlignCenter)
+        left_layout.addWidget(self.canvas, 1, 0, 12, 3,
+                              alignment=Qt.AlignCenter)
+
+        left_qwidget.setLayout(left_layout)
+
         right_layout = QVBoxLayout()
         right_layout.addWidget(acq_groupbox)
         right_layout.addWidget(post_groupbox)
@@ -298,7 +349,7 @@ class MainWindow(QMainWindow):
         right_qwidget.setLayout(right_layout)
 
         main_layout = QHBoxLayout()
-        main_layout.addWidget(self.canvas, 3)
+        main_layout.addWidget(left_qwidget, 3)
         main_layout.addWidget(right_qwidget, 1)
 
         main_qwidget = QWidget()

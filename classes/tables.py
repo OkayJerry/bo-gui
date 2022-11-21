@@ -249,7 +249,6 @@ class EvaluationPointTable(Table):
 class AcqPostFixTable(Table):
     def __init__(self, rows: int, parent=None):
         super().__init__(rows, 1, parent=parent)
-
         self.setHorizontalHeaderItem(0, TableItem('Fix Value'))
 
     def returnAxis(self, axis_name: str):
@@ -273,3 +272,21 @@ class AcqPostFixTable(Table):
                     d[row_n] = np.float32(0.0)
 
         return d
+
+class RampingWeightTable(Table):
+    def __init__(self, rows, parent=None):
+        super().__init__(rows, 1, parent=parent)
+        self.setHorizontalHeaderItem(0, TableItem('Ramping Rate'))
+        self.setVerticalHeaderLabels([f'x0[{i}]' for i in range(rows)])
+        self.horizontalHeader().setContextMenuPolicy(Qt.NoContextMenu)
+        self.verticalHeader().setContextMenuPolicy(Qt.NoContextMenu)
+
+        for i in range(rows):
+            self.setItem(i, 0, DoubleTableItem(1))
+        
+    def getWeights(self):
+        weights = []
+        for row_n in range(self.rowCount()):
+            val = np.float32(self.item(row_n, 0).text())
+            weights.append(val)
+        return weights
