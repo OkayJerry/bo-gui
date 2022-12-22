@@ -193,6 +193,31 @@ class ObjectiveTable(Table):
                                 f'It is recommended to have the objective value bounded between {bounds[0]} and {bounds[1]} for numerical stability.',
                                 QMessageBox.Ok,
                                 QMessageBox.Ok)
+            
+    def applyFunctionToEmptyCells(self, function):
+        import globals as glb 
+        self.blockSignals(True)
+        
+        if self is glb.main_window.initial_y_table:
+            decision_table = glb.main_window.initial_x_table
+        elif self is glb.main_window.iteration_y_table:
+            decision_table = glb.main_window.iteration_x_table
+            
+        array, success = decision_table.getArray()
+        if success:
+            try:
+                for i, pnt in enumerate(array):
+                    if self.item(i, 0).text() == '':
+                        print(f"Point: {pnt}")
+                        obj_val = function(pnt)
+                        print(f"Objective Value: {obj_val}")
+                        self.setItem(i, 0, DoubleTableItem(obj_val))
+            except:
+                QMessageBox.critical(self, 'ERROR', 'Failed while applying function.', QMessageBox.Ok)
+        else:
+            QMessageBox.critical(self, 'ERROR', 'Decision Parameter incomplete.', QMessageBox.Ok)
+
+        self.blockSignals(False)
 
 
 class BoundryTable(Table):

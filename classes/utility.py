@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QKeySequence, QFontMetricsF
 import numpy as np
 import csv
 import threading
@@ -289,7 +289,7 @@ class MenuBar(QMenuBar):
                 if ".csv" not in filename and ".pickle" not in filename:
                     warning = QMessageBox()
                     warning.setIcon(QMessageBox.Critical)
-                    warning.setText("Didn't select a .csv or .pickle file")
+                    warning.setText("Didn't select a *.csv or *.pickle file")
                     warning.setWindowTitle("ERROR")
                     warning.setStandardButtons(QMessageBox.Ok)
 
@@ -323,46 +323,77 @@ class MenuBar(QMenuBar):
                 data['ydata'].append(row[-1])
             data['bounds']['min'] = initial_data[-2][:-1]
             data['bounds']['max'] = initial_data[-1][:-1]
-        elif ".pickle" in filename:
-            # x, y, bounds, batch_size = glb.interactive_GPBO.load_from_log(filename)
-            for element in glb.interactive_GPBO.load_from_log(filename):
-                print(element)
-                print('*****')        
-        
-        # resetting initialization windows
-        main_window.returnToInitializiation()
-        
-        # setting initialization tables
-        initial_x_table = main_window.initial_x_table
-        initial_y_table = main_window.initial_y_table
-        boundry_table = main_window.bounds_table
-        weight_table = main_window.weight_table
-
-        initial_x_table.setColumnCount(len(data['xheader']))
-        initial_x_table.setRowCount(len(data['xdata']))
-        for i, header in enumerate(data['xheader']):
-            initial_x_table.setHorizontalHeaderItem(i, TableItem(header))
-        for i, row in enumerate(data['xdata']):
-            for j, val in enumerate(row):
-                initial_x_table.setItem(i, j, DoubleTableItem(val))
- 
-        initial_y_table.setRowCount(len(data['xdata']))
-        initial_y_table.horizontalHeaderItem(0).setText(data['yheader'])
-        for i, val in enumerate(data['ydata']):
-            initial_y_table.setItem(i, 0, DoubleTableItem(val))
-                    
-        boundry_table.setColumnCount(len(data['bounds']['min']))
-        for i, header in enumerate(data['xheader']):
-            boundry_table.setHorizontalHeaderItem(i, TableItem(header))
-        for i, val in enumerate(data['bounds']['min']):
-            boundry_table.setItem(0, i, DoubleTableItem(val))
-        for i, val in enumerate(data['bounds']['max']):
-            boundry_table.setItem(1, i, DoubleTableItem(val))
             
-        weight_table.setRowCount(len(data['xheader']))
-        for i, header in enumerate(data['xheader']):
-            weight_table.setItem(i, 0, DoubleTableItem(1))
-            weight_table.setVerticalHeaderItem(i, TableItem(header))
+            # resetting initialization windows
+            main_window.returnToInitializiation()
+            
+            # setting initialization tables
+            initial_x_table = main_window.initial_x_table
+            initial_y_table = main_window.initial_y_table
+            boundry_table = main_window.bounds_table
+            weight_table = main_window.weight_table
+
+            initial_x_table.setColumnCount(len(data['xheader']))
+            initial_x_table.setRowCount(len(data['xdata']))
+            for i, header in enumerate(data['xheader']):
+                initial_x_table.setHorizontalHeaderItem(i, TableItem(header))
+            for i, row in enumerate(data['xdata']):
+                for j, val in enumerate(row):
+                    initial_x_table.setItem(i, j, DoubleTableItem(val))
+    
+            initial_y_table.setRowCount(len(data['xdata']))
+            initial_y_table.horizontalHeaderItem(0).setText(data['yheader'])
+            for i, val in enumerate(data['ydata']):
+                initial_y_table.setItem(i, 0, DoubleTableItem(val))
+                        
+            boundry_table.setColumnCount(len(data['bounds']['min']))
+            for i, header in enumerate(data['xheader']):
+                boundry_table.setHorizontalHeaderItem(i, TableItem(header))
+            for i, val in enumerate(data['bounds']['min']):
+                boundry_table.setItem(0, i, DoubleTableItem(val))
+            for i, val in enumerate(data['bounds']['max']):
+                boundry_table.setItem(1, i, DoubleTableItem(val))
+                
+            weight_table.setRowCount(len(data['xheader']))
+            for i, header in enumerate(data['xheader']):
+                weight_table.setItem(i, 0, DoubleTableItem(1))
+                weight_table.setVerticalHeaderItem(i, TableItem(header))
+        elif ".pickle" in filename:
+            iteration_x_table = glb.main_window.iteration_x_table
+            iteration_y_table = glb.main_window.iteration_y_table
+            evaluation_point_table = glb.main_window.evaluation_point_groupbox.evaluation_point_table
+            iteration_batch_spin_box =  glb.main_window.iteration_batch_spin_box
+            iteration_beta_spin_box = glb.main_window.iteration_beta_spin_box
+            tabs = glb.main_window.tabs
+            epoch_label = glb.main_window.epoch_label
+            
+            x, y, bounds, batch_size, epoch, acquisition_type, acquisition_args = glb.interactive_GPBO.load_from_log(filename)
+
+            iteration_x_table.fillFromArray(x)
+            iteration_y_table.fillFromArray(y)
+            x_labels = [f'x0[{i}]' for i in range(iteration_x_table.columnCount())]
+            iteration_x_table.setHorizontalHeaderLabels(x_labels)
+            iteration_y_table.setHorizontalHeaderLabels(['y0'])
+            evaluation_point_table.setColumnCount(len(bounds))
+            evaluation_point_table.setHorizontalHeaderLabels(x_labels)
+            
+            iteration_batch_spin_box.setValue(batch_size)
+            tabs.setTabEnabled(1, True)
+            tabs.setTabEnabled(2, True)
+            epoch_label.setText(str(epoch))
+            
+            if acquisition_type in ["UCB", "UpperConfidenceBound", "qUpperConfidenceBound", "LCB", "LowerConfidenceBound"]:
+                iteration_beta_spin_box.setEnabled(True)
+                iteration_beta_spin_box.setValue(acquisition_args['beta'])
+            elif acquisition_type in ["KG", "qKnowledgeGradient", "KnowledgeGradient"]:
+                iteration_beta_spin_box.setEnabled(False)
+
+            tabs.setCurrentIndex(1)
+            
+
+            
+            
+        
             
 class InitializeButton(QPushButton):
     def __init__(self, parent=None):
@@ -443,7 +474,7 @@ class InitializeButton(QPushButton):
             epoch_label.setText('1')
             glb.main_window.transferDataFromInitialization()
             progress_dialog.reset()
-            glb.interactive_GPBO.updateProgressBar.connect(progress_dialog.handle)
+            glb.interactive_GPBO.updateProgressBar.connect(progress_dialog.handle, Qt.UniqueConnection)
         else:
             QMessageBox.critical(self, 'ERROR', 'Initial array(s) incomplete.', QMessageBox.Ok)
         
@@ -836,3 +867,56 @@ class ProgressDialog(QProgressDialog):
             self.setMaximum(1020)
         elif num_plots == 1 and self.maximum() != 510:
             self.setMaximum(510)
+
+class ObjFuncButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent=parent)
+
+        self.textEdit = QPlainTextEdit()
+        self.textEdit.setTabStopDistance(QFontMetricsF(
+            self.textEdit.font()).horizontalAdvance(' ') * 4)
+        self.textEdit.setPlainText(
+            "from UserFunctions.rosenbrock import rosenbrock\n\nreturn rosenbrock(X)")
+        self.doneBtn = QPushButton('Done')
+        # self.importBtn = QPushButton('Import Python File')
+        layout = QGridLayout()
+        layout.addWidget(QLabel("def objective_function(X):"),
+                         0, 0, 1, 1, Qt.AlignLeft)
+        layout.addWidget(self.textEdit, 1, 0, 1, 2)
+        # layout.addWidget(self.importBtn, 2, 0, 1, 1)
+        layout.addWidget(self.doneBtn, 2, 1, 1, 1)
+
+        self.window = QDialog()
+        self.window.setLayout(layout)
+        self.window.setWhatsThis(
+            "This window allows you to use a function to automatically calculate objective values. Notice that the function is already defined, so you are only responsible for the script it runs.\n\nThe variable 'X' represents a singular row from the decision parameters, meaning that if you have three dimensions, it will look like 'np.array([val_1, val_2, val_3])'. If you'd prefer a different name, you may rename it like so: 'some_name = X'\n\nIt is required that the script returns types float or int.\n\nYou may import a module as long as this program lies within your PYTHONPATH.\n\nIf you'd prefer to use an IDE, you can save the relevant .py file in the 'UserFunctions' folder and import it as shown in the template.")
+
+        self.clicked.connect(self.window.show)
+        self.doneBtn.clicked.connect(self.finishedTextEdit)
+        # self.importBtn.clicked.connect(self.importPythonFile)
+
+    def finishedTextEdit(self):
+        import globals as glb
+        
+        self.window.hide()
+        func_str = self.textEdit.toPlainText()
+        func_str = "def objective_function(X):\n\t" + func_str.replace('\n', '\n\t') # formatting
+        
+        g = dict()
+        l = dict()
+        try:
+            exec(func_str, g, l)
+        except Exception as exc:
+            critical = QMessageBox(self)
+            critical.setWindowTitle('ERROR')
+            critical.setText(f'Function crashed: {type(exc)}')
+            critical.setDetailedText(str(exc))
+            critical.setIcon(QMessageBox.Critical)
+            critical.show()
+            
+        if l:
+            func =  list(l.values())[0]
+            if self is glb.main_window.initial_obj_func_btn:
+                glb.main_window.initial_y_table.applyFunctionToEmptyCells(func)
+            elif self is glb.main_window.iteration_obj_func_btn:
+                glb.main_window.iteration_y_table.applyFunctionToEmptyCells(func)

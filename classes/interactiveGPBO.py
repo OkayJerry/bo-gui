@@ -202,7 +202,7 @@ class InteractiveGPBO(QObject):
                  scipy_minimize_options=None,
                  prior_mean_model=None,
                  prior_mean_model_env=None,
-                 L2reg=0.05,
+                 L2reg=0.0,
                  avoid_bounds_corners=True,
                  path="./log/",
                  tag=""
@@ -298,6 +298,7 @@ class InteractiveGPBO(QObject):
              acquisition_func_args=None,
              acquisition_optimize_options=None,
              scipy_minimize_options=None,
+             X_pending=None,
              L2reg=None,
              log=True,
              remember_gp=True,
@@ -371,6 +372,7 @@ class InteractiveGPBO(QObject):
         else:
             self.history['gp'].append(None)
             self.history['acquisition'].append(None)
+                
 
         # import inspect
         # print(inspect.stack()[0][3])
@@ -398,16 +400,30 @@ class InteractiveGPBO(QObject):
         # print(inspect.stack()[1][3])
         return x, y
 
-    def write_log(self, path="./log/", tag=""):
-        if path[-1] != "/":
+    def write_log(self,path="./log/",tag=""):
+        if path[-1]!="/":
             path += "/"
         if not os.path.isdir(path):
             os.mkdir(path)
-        tag = str(date.today()) + "_" + tag
+        tag = str(date.today())+"_"+tag
         if tag[-1] != "_":
             tag = tag+"_"
-        pickle.dump(self.history['x'], open(path + tag + "x.pickle", "wb"))
-        pickle.dump(self.history['y'], open(path + tag + "y.pickle", "wb"))
+            
+        if type(self.acquisition) == qUpperConfidenceBound:
+            acquisition_type = 'UCB'
+        elif type(self.acquisition) == qKnowledgeGradient:
+            acquisition_type = 'KG'
+            
+        data = {'x':self.history['x'],
+                'y':self.history['y'],
+                'bounds':self.history['bounds'],
+                'beta':self.history['beta'],
+                'x1':self.history['x1'],
+                'gp':[None]*self.epoch,
+                'acquisition':[None]*self.epoch,
+                'acquisition_type': acquisition_type,
+                'acquisition_args': self.acquisition_func_args}
+        pickle.dump(data,open(path+tag+"history.pickle","wb"))
 
         # import inspect
         # print(inspect.stack()[0][3])
@@ -419,8 +435,17 @@ class InteractiveGPBO(QObject):
         self.y = self.history['y'][-1]
         self.batch_size = len(self.history['x1'][-1])
         self.bounds = self.history['bounds'][-1]
-        self.dim == len(self.bounds)
-        return self.x, self.y, self.bounds, self.batch_size
+        self.dim = len(self.bounds)
+        self.epoch = len(self.history['x'])
+        self.acquisition_func_args = self.history['acquisition_args']
+        self.acquisition_optimize_options = {"num_restarts": 20, "raw_samples": 20}
+        
+        if self.history['acquisition_type'] in ["UCB", "UpperConfidenceBound", "qUpperConfidenceBound", "LCB", "LowerConfidenceBound"]:
+            self.acquisition_func = qUpperConfidenceBound
+        elif self.history['acquisition_type'] in ["KG", "qKnowledgeGradient", "KnowledgeGradient"]:
+            self.acquisition_func = qKnowledgeGradient
+
+        return self.x, self.y, self.bounds, self.batch_size, self.epoch, self.history['acquisition_type'], self.acquisition_func_args
 
     def write_gp_on_grid(self, epoch=None, path="./log/", tag="", grid_points_each_dim=25):
         if grid_points_each_dim**self.dim * self.dim > 2e6:

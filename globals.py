@@ -7,7 +7,10 @@ def calcDistance(pnt_A, pnt_B, weights):
     for i in range(len(pnt_A)):
         coord_A = pnt_A[i]
         coord_B = pnt_B[i]
-        distances.append(abs(coord_A - coord_B) * weights[i])
+        if weights:
+            distances.append(abs(coord_A - coord_B) * weights[i])
+        else:
+            distances.append(abs(coord_A - coord_B))
     return max(distances)
 
 def findBestPoint(prev_pnt, eval_pnts, weights):
@@ -21,14 +24,16 @@ def findBestPoint(prev_pnt, eval_pnts, weights):
     return eval_pnts[pnt_index], pnt_index
 
 def orderByDistance(prev_pnt, eval_pnts, weights):
-    # print(f'Before:\n{eval_pnts}')
     eval_pnts = eval_pnts
     ordered_pnts = []
+
+    if len(eval_pnts[0]) != len(weights):
+        weights = []
+
     while eval_pnts.size != 0:
         best_pnt, best_pnt_index = findBestPoint(prev_pnt, eval_pnts, weights)
         ordered_pnts.append(best_pnt)
         eval_pnts = np.delete(eval_pnts, best_pnt_index, 0)
-    # print(f'After:\n{np.array(ordered_pnts)}')
     return np.array(ordered_pnts)
 
 class GPBO(InteractiveGPBO):
@@ -41,22 +46,24 @@ class GPBO(InteractiveGPBO):
         super().__init__(x, y, bounds, batch_size, acquisition_func, acquisition_func_args,
                          acquisition_optimize_options, scipy_minimize_options, prior_mean_model,
                          prior_mean_model_env, L2reg, avoid_bounds_corners, path, tag)
+            
+        if np.size(x) != 0:
+            eval_table = main_window.evaluation_point_groupbox.evaluation_point_table
+            weight_table = main_window.weight_table
 
-        eval_table = main_window.evaluation_point_groupbox.evaluation_point_table
-        weight_table = main_window.weight_table
-        preview_canvas = main_window.preview_canvas
-        canvas = main_window.canvas
+            preview_canvas = main_window.preview_canvas
+            canvas = main_window.canvas
+            
+            self.acq_axes = [preview_canvas.acquisition_ax, canvas.acquisition_ax]
+            self.post_axes = [preview_canvas.posterior_ax, canvas.posterior_ax]
+            self.obj_axes = [preview_canvas.obj_history_ax, canvas.obj_history_ax]
 
-        self.acq_axes = [preview_canvas.acquisition_ax, canvas.acquisition_ax]
-        self.post_axes = [preview_canvas.posterior_ax, canvas.posterior_ax]
-        self.obj_axes = [preview_canvas.obj_history_ax, canvas.obj_history_ax]
+            eval_x = self.step(batch_size=batch_size)
+            eval_x = orderByDistance(self.x[-1], eval_x, weight_table.getWeights())
+            eval_table.addEvaluationX(eval_x)
 
-        eval_x = self.step(batch_size=batch_size)
-        eval_x = orderByDistance(self.x[-1], eval_x, weight_table.getWeights())
-        eval_table.addEvaluationX(eval_x)
-
-        thread = threading.Thread(target=self.plot_all)
-        thread.start()
+            thread = threading.Thread(target=self.plot_all)
+            thread.start()
 
     def plot_all(self):
         preview_canvas = main_window.preview_canvas
@@ -114,7 +121,7 @@ def init():
     mpl.rc('lines', markersize=3)
     acq_widgets = []
     tables = []
-    interactive_GPBO = InteractiveGPBO(
+    interactive_GPBO = GPBO(
         x=np.array([[]]), y=np.array([[]]), bounds=[])
 
     app = QApplication(argv)

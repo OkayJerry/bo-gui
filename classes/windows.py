@@ -17,6 +17,8 @@ class MainWindow(QMainWindow):
 
         self.progress_dialog = ProgressDialog(self)
         self.canvas_colorbars = {}
+        
+        glb.interactive_GPBO.updateProgressBar.connect(self.progress_dialog.handle, Qt.UniqueConnection)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.createInitializationPage(), 'Initialization')
@@ -25,6 +27,10 @@ class MainWindow(QMainWindow):
         self.tabs.setTabEnabled(1, False)
         self.tabs.setTabEnabled(2, False)
         self.tabs.tabBarClicked.connect(self.handleTightLayoutTab)
+
+        glb.interactive_GPBO.acq_axes = [self.preview_canvas.acquisition_ax, self.canvas.acquisition_ax]
+        glb.interactive_GPBO.post_axes = [self.preview_canvas.posterior_ax, self.canvas.posterior_ax]
+        glb.interactive_GPBO.obj_axes = [self.preview_canvas.obj_history_ax, self.canvas.obj_history_ax]
 
         central_layout = QHBoxLayout()
         central_layout.addWidget(self.tabs)
@@ -63,12 +69,13 @@ class MainWindow(QMainWindow):
 
     def createInitializationPage(self):
         from classes.tables import DecisionParameterTable, ObjectiveTable, BoundryTable, RampingWeightTable
-        from classes.utility import AcquisitionWidget, InitializeButton
+        from classes.utility import AcquisitionWidget, InitializeButton, ObjFuncButton
 
         # data
         self.initial_x_table = DecisionParameterTable(1, 1)
         self.initial_y_table = ObjectiveTable(1)
         self.bounds_table = BoundryTable(1)
+        self.initial_obj_func_btn = ObjFuncButton('Apply Objective Function')
 
         self.initial_x_table.itemChanged.connect(
             lambda: self.handleTableRowSynchronization(self.initial_x_table))
@@ -82,13 +89,14 @@ class MainWindow(QMainWindow):
         data_layout = QGridLayout()
         data_layout.addWidget(
             QLabel('Initial Decision Parameters'), 0, 0, 1, 3, alignment=Qt.AlignCenter)
-        data_layout.addWidget(self.initial_x_table, 1, 0, 1, 3)
+        data_layout.addWidget(self.initial_x_table, 1, 0, 2, 3)
         data_layout.addWidget(QLabel('Initial Objective'),
                               0, 3, 1, 1, alignment=Qt.AlignCenter)
         data_layout.addWidget(self.initial_y_table, 1, 3, 1, 1)
+        data_layout.addWidget(self.initial_obj_func_btn, 2, 3, 1, 1)
         data_layout.addWidget(QLabel('Boundary of Decision'),
-                              2, 0, 1, 3, alignment=Qt.AlignCenter)
-        data_layout.addWidget(self.bounds_table, 3, 0, 1, 3)
+                              3, 0, 1, 3, alignment=Qt.AlignCenter)
+        data_layout.addWidget(self.bounds_table, 4, 0, 1, 3)
 
         data_groupbox = QGroupBox('Data')
         data_groupbox.setLayout(data_layout)
@@ -154,7 +162,7 @@ class MainWindow(QMainWindow):
     def createIterationPage(self):
         from classes.tables import DecisionParameterTable, ObjectiveTable
         from classes.canvas import PreviewCanvas
-        from classes.utility import EvaluationPointGroupBox, IterateButton
+        from classes.utility import EvaluationPointGroupBox, IterateButton, ObjFuncButton
 
         # display
         self.epoch_label = QLabel('0')
@@ -204,6 +212,7 @@ class MainWindow(QMainWindow):
         # data
         self.iteration_x_table = DecisionParameterTable(1, 1)
         self.iteration_y_table = ObjectiveTable(1)
+        self.iteration_obj_func_btn = ObjFuncButton('Apply Objective Function')
 
         self.iteration_x_table.verticalScrollBar().valueChanged.connect(
             lambda: self.iteration_x_table.syncScroll(self.iteration_y_table))
@@ -213,10 +222,11 @@ class MainWindow(QMainWindow):
         data_layout = QGridLayout()
         data_layout.addWidget(QLabel('Decision Parameters'),
                               0, 0, 1, 1, alignment=Qt.AlignCenter)
-        data_layout.addWidget(self.iteration_x_table, 1, 0, 1, 1)
+        data_layout.addWidget(self.iteration_x_table, 1, 0, 2, 1)
         data_layout.addWidget(QLabel('Objective'), 0, 1,
                               1, 1, alignment=Qt.AlignCenter)
         data_layout.addWidget(self.iteration_y_table, 1, 1, 1, 1)
+        data_layout.addWidget(self.iteration_obj_func_btn, 2, 1, 1, 1)
 
         data_groupbox = QGroupBox('Data')
         data_groupbox.setLayout(data_layout)
@@ -329,14 +339,19 @@ class MainWindow(QMainWindow):
         post_groupbox = QGroupBox('Posterior Mean')
         post_groupbox.setLayout(post_layout)
 
+        # Navigation
+        self.plot_spinbox = QSpinBox()
+
         # main
         left_qwidget = QWidget()
         self.nav_toolbar = NavigationToolbar(self.canvas, left_qwidget)
 
         left_layout = QGridLayout()
-        left_layout.addWidget(self.nav_toolbar, 0, 1, 1,
+        left_layout.addWidget(self.nav_toolbar, 0, 0, 1,
                               1, alignment=Qt.AlignCenter)
-        left_layout.addWidget(self.canvas, 1, 0, 12, 3,
+        left_layout.addWidget(self.plot_spinbox, 0, 1, 1,
+                              1, alignment=Qt.AlignCenter)
+        left_layout.addWidget(self.canvas, 1, 0, 12, 2,
                               alignment=Qt.AlignCenter)
 
         left_qwidget.setLayout(left_layout)
