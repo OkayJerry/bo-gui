@@ -89,7 +89,7 @@ def train_simpleNN(model, x_decision, x_env, y,
 
 def addColorBar(ax, data, y_grid, main_window):        
     cbars = main_window.colorbars
-    size_logic = lambda size: size - 2 if isinstance(ax.figure.canvas, cmp.canvases.PreviewCanvas) else size
+    size_logic = lambda size: size - 2 if isinstance(ax.figure.canvas, cmp.plot.PreviewCanvas) else size
     
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
