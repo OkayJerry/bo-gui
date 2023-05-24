@@ -4,11 +4,8 @@ Graphical User Interface for Bayesian Optimization.
 </p>
 
 ## Preview Images
-### Initialization
-![initialization](https://user-images.githubusercontent.com/70593138/196775696-fd3b5a99-bc1d-4deb-809b-0cdd77034b72.JPG)
-
-### Iteration
-![iteration](https://user-images.githubusercontent.com/70593138/196775700-39e87d73-ebb2-4560-98a5-e67bfb317480.JPG)
+### Main
+![Main](https://github.com/OkayJerry/bo-gui/assets/70593138/9506fc6c-d90f-416d-a573-e0ad7dc0f67f)
 
 ### Plots
-![plots](https://user-images.githubusercontent.com/70593138/196775703-085b7a8c-ac02-4f72-8fc9-dfca6a1b32a4.JPG)
+![Plots](https://github.com/OkayJerry/bo-gui/assets/70593138/30433b0c-09e5-4b33-9ac0-435e33ec7c61)
