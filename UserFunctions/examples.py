@@ -40,3 +40,11 @@ def levy(x):
 
 def prior_levy(X):
     return np.array([levy(x) for x in X])
+
+def rastrigin(X, noise=0.01):
+    print(X)
+    # print(len(X))
+    # print(X.shape)
+    # print(X.ndim)
+    DIM = len(X)
+    return (DIM + np.sum(30*X**2 - 10*np.cos(2 * np.pi * X))) + np.random.randn()*noise

@@ -1,3 +1,4 @@
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
@@ -132,7 +133,7 @@ class BaseCanvas(FigureCanvasQTAgg):
 
         self.figure.tight_layout()
         if not compact:
-            self.figure.subplots_adjust(top=0.99)
+            self.figure.subplots_adjust(top=0.95)
 
         self.draw_idle()
 
@@ -144,6 +145,19 @@ class BaseCanvas(FigureCanvasQTAgg):
             if ax.get_visible():
                 ax.set_visible(False)
 
+class NavigationToolbar(NavigationToolbar2QT):
+    def __init__(self, canvas, parent):
+        self.toolitems = (('Home', 'Reset original view', 'home', 'home'),
+        ('Back', 'Back to previous view', 'back', 'back'),
+        ('Forward', 'Forward to next view', 'forward', 'forward'),
+        (None, None, None, None),
+        ('Pan', 'Left button pans, Right button zooms\nx/y fixes axis, CTRL fixes aspect', 'move', 'pan'),
+        ('Zoom', 'Zoom to rectangle\nx/y fixes axis', 'zoom_to_rect', 'zoom'),
+        (None, None, None, None),
+        ('Save', 'Save the figure', 'filesave', 'save_figure'),
+        )
+        super().__init__(canvas, parent)
+        self.update()
 class MainCanvas(BaseCanvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -151,13 +165,13 @@ class MainCanvas(BaseCanvas):
         # MAIN FIGURE
         self.figure = Figure()
         
-        # Separate into 2 x 2 grid
-        gs = self.figure.add_gridspec(2, 2)
+        # Separate into 3 x 2 grid
+        gs = self.figure.add_gridspec(3, 2)
         
         # Create axes on grid
-        self.acquisition_ax = self.figure.add_subplot(gs[0, 0])
-        self.posterior_ax = self.figure.add_subplot(gs[0, 1])
-        self.obj_history_ax = self.figure.add_subplot(gs[1, :])
+        self.acquisition_ax = self.figure.add_subplot(gs[:2, 0])
+        self.posterior_ax = self.figure.add_subplot(gs[:2, 1])
+        self.obj_history_ax = self.figure.add_subplot(gs[2, :])
         
         self.hide_axes()
 

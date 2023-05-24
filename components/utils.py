@@ -197,6 +197,23 @@ class Table(QTableWidget):
                     items.append(item)
             
         return items
+    def copy_items(self, selected=False) -> List[QTableWidgetItem]:
+        if selected:
+            items = []
+            for item in self.selectedItems():
+                text = item.text() if item else ""
+                item = CenteredTableItem()
+                item.setText(text)
+                items.append(item)
+        else:
+            items = []
+            for i in range(self.rowCount()):
+                for j in range(self.columnCount()):
+                    text = self.item(i, j).text() if self.item(i, j) else ""
+                    item = CenteredTableItem()
+                    item.setText(text)
+                    items.append(item)
+        return items
     def fill_row_with_items(self, row: int, item_class):
         """Fills row with items of the provided class.
 
@@ -225,6 +242,12 @@ class Table(QTableWidget):
         l = []
         for i in range(self.columnCount()):
             item = self.horizontalHeaderItem(i)
+            l.append(item.text() if item else None)
+        return l
+    def get_vertical_labels(self) -> List[Union[str, None]]:
+        l = []
+        for i in range(self.rowCount()):
+            item = self.verticalHeaderItem(i)
             l.append(item.text() if item else None)
         return l
     def show_all_rows(self):
@@ -332,7 +355,6 @@ class PendingTable(Table):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.horizontalHeader().setMinimumSectionSize(50)
         
 class MemoryLineEdit(QLineEdit):

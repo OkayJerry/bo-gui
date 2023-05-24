@@ -93,11 +93,11 @@ def addColorBar(ax, data, y_grid, main_window):
     
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    num_ticks = 5
     max_ygrid = max(y_grid)
     min_ygrid = min(y_grid)
     range_ygrid = max_ygrid - min_ygrid
-    tick_difference = range_ygrid / (num_ticks - 1)
+    num_ticks = 1 if np.isclose(max_ygrid, min_ygrid) else 5
+    tick_difference = range_ygrid / (num_ticks - 1) if num_ticks > 1 else 0
     ticks = [max_ygrid]
     for i in range(num_ticks):
         ticks.append(max_ygrid - i * tick_difference)
@@ -400,7 +400,8 @@ class interactiveGPBO(QObject):
             elif state_dict is not None:
                 try:
                     self.gp.load_state_dict(state_dict)
-                except:
+                except Exception as exc:
+                    print(exc)
                     print(
                         "previous liklihood model is not consistent with new model. GP hyper-parmaeters are not loaded.")
 
@@ -531,7 +532,8 @@ class interactiveGPBO(QObject):
         self.bounds = hist[-1]['bounds']
         try:
             self.batch_size = max(len(hist[-1]['x1'][-1]), 1)
-        except:
+        except Exception as exc:
+            print(exc)
             self.batch_size = 1
         if acquisition_func is None:
             acquisition_func = hist[-1]['acquisition']
@@ -983,7 +985,6 @@ class interactiveGPBO(QObject):
                 
             addColorBar(ax, data, y_grid, main_window)
 
-        # return cs
         return axes
 
     def plot_func_projection(self, func, bounds, x=None, dim_xaxis=0, dim_yaxis=1, 

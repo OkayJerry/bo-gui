@@ -2,7 +2,6 @@ import os
 import sys
 from collections import OrderedDict
 
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 from PyQt5.QtCore import QRect, Qt, pyqtSignal
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
@@ -36,12 +35,8 @@ class MainView(QWidget):
         
         # Group Boxes
         display_groupbox = QGroupBox('Display')
-        display_layout = QGridLayout()
+        display_layout = QVBoxLayout()
         display_groupbox.setLayout(display_layout)
-        
-        plots_groupbox = QGroupBox('Preview Plots')
-        plots_layout = QVBoxLayout()
-        plots_groupbox.setLayout(plots_layout)
         
         control_groupbox = QGroupBox('Control')
         control_layout = QGridLayout()
@@ -57,29 +52,22 @@ class MainView(QWidget):
         
         # Display
         self.epoch_label = ModularLabel('0')
-        
-        display_layout.addWidget(QLabel('Iteration Epoch:'), 
-                                 0, 0, 1, 1, alignment=Qt.AlignRight)
-        display_layout.addWidget(self.epoch_label, 
-                                 0, 1, 1, 1)
-
-        # Preview Plots
         self.plot_button = QCheckBox()
         self.canvas = PreviewCanvas()
         
-        plot_button_qwidget = QWidget()
-        plot_button_layout = QHBoxLayout()
-        plot_button_qwidget.setLayout(plot_button_layout)
-        plot_button_layout.setContentsMargins(0, 0, 0, 0)
-        plot_button_layout.addWidget(QLabel('Draw Plot:'),
-                                     alignment=Qt.AlignRight)
-        plot_button_layout.addWidget(self.plot_button,
-                                     alignment=Qt.AlignLeft)
+        qwidget = QWidget()
+        layout = QHBoxLayout()
+        qwidget.setLayout(layout)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(QLabel("Iteration Epoch:"), alignment=Qt.AlignRight)
+        layout.addWidget(self.epoch_label, alignment=Qt.AlignLeft)
+        layout.addWidget(QLabel("Draw Plot:"), alignment=Qt.AlignRight)
+        layout.addWidget(self.plot_button, alignment=Qt.AlignLeft)
         
-        plots_layout.addWidget(plot_button_qwidget)
-        plots_layout.addWidget(self.canvas)
-        plots_layout.setStretchFactor(plot_button_qwidget, 0)
-        plots_layout.setStretchFactor(self.canvas, 2)
+        display_layout.addWidget(qwidget)
+        display_layout.addWidget(self.canvas)
+        display_layout.setStretchFactor(qwidget, 0)
+        display_layout.setStretchFactor(self.canvas, 2)
         
         # Control
         self.ucb_button = QRadioButton('Upper Confidence Bound (UCB)')
@@ -106,8 +94,6 @@ class MainView(QWidget):
         control_layout.addWidget(self.kg_button, 
                              4, 0, 1, 3)
         
-        
-        
         # Data
         self.x_table = XTable()
         self.y_table = YTable()
@@ -115,7 +101,7 @@ class MainView(QWidget):
         self.obj_func_btn = QPushButton('Apply Objective Function')
         self.obj_func_win = CustomFunctionWindow()
 
-        data_layout.addWidget(QLabel('Decision Parameters'), 
+        data_layout.addWidget(QLabel('Decision'), 
                               0, 0, 1, 3, alignment=Qt.AlignCenter)
         data_layout.addWidget(self.x_table,
                               1, 0, 2, 3)
@@ -138,6 +124,7 @@ class MainView(QWidget):
         self.candidate_pnt_table = CandidateTable()
         self.pending_pnt_table = PendingTable()
         self.query_candidates_button = QPushButton('Query Candidates')
+        self.query_candidates_button.setStyleSheet("font-weight: bold;")
         
         query_layout.addWidget(QLabel('Candidate Points'), 
                                0, 0, 1, 1, alignment=Qt.AlignCenter)
@@ -158,28 +145,23 @@ class MainView(QWidget):
         top_right_layout.addWidget(control_groupbox, 1)
         top_right_layout.addWidget(query_groupbox, 3)
 
-        left_qwidget = QWidget()
         right_qwidget = QWidget()
-        left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
-        left_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        left_qwidget.setLayout(left_layout)
         right_qwidget.setLayout(right_layout)
         
         self.update_gp_button = QPushButton('Update GP')
+        self.update_gp_button.setStyleSheet("font-weight: bold;")
         
         self.progress_button = ProgressButton(self.update_gp_button)
         
-        left_layout.addWidget(display_groupbox, 1)
-        left_layout.addWidget(plots_groupbox, 5)
-        right_layout.addWidget(top_right_qwidget, 1)
+        right_layout.addWidget(top_right_qwidget, 2)
         right_layout.addWidget(data_groupbox, 5)
         right_layout.addWidget(self.progress_button, 1)
-        left_layout.setStretchFactor(display_groupbox, 0)
 
-        main_layout.addWidget(left_qwidget, 1)
+        main_layout.addWidget(display_groupbox)
         main_layout.addWidget(right_qwidget, 3)
+        main_layout.setStretchFactor(display_groupbox, 0)
         
         self.widgets = [self.epoch_label,
                         self.plot_button,
@@ -292,7 +274,7 @@ class PlotsView(QWidget):
         right_qwidget.setLayout(right_layout)
         
         # Create Navigation Toolbar for plot canvas
-        self.nav_toolbar = NavigationToolbar2QT(self.canvas, left_qwidget)
+        self.nav_toolbar = NavigationToolbar(self.canvas, left_qwidget)
 
         # Create QSpinBox for plot history (epoch) selection
         self.epoch_spinbox = QSpinBox()
@@ -330,6 +312,7 @@ class PlotsView(QWidget):
         
         # Create the QPushButton for applying updates of fixed projection values
         self.update_proj_button = QPushButton('Update Projection')
+        self.update_proj_button.setStyleSheet("font-weight: bold;")
 
         self.progress_button = ProgressButton(self.update_proj_button)
         
@@ -692,25 +675,22 @@ class CandidatePendingTableContextMenu(TableContextMenu):
         self._pos = pos
         parent_table = self.parent()
 
-        selected_to_decision_action = QAction("To Decision", self)
-        all_to_decision_action = QAction("To Decision", self)
-
-        all_to_decision_action.triggered.connect(parent_table.allToX)
-        selected_to_decision_action.triggered.connect(parent_table.selectedToX)
-
-        move_selected_menu = self.addMenu("Move Selected")
-        move_all_menu = self.addMenu("Move All")
         
-        move_selected_menu.addAction(selected_to_decision_action)
-        move_all_menu.addAction(all_to_decision_action)
         
-        self.addSeparator()
-        self.addAction(self.cut_action)
-        self.addAction(self.copy_action)
-        self.addAction(self.paste_action)
-        self.addSeparator()
         
         if isinstance(self.parent(), CandidateTable):
+            selected_to_decision_action = QAction("To Decision", self)
+            all_to_decision_action = QAction("To Decision", self)
+
+            all_to_decision_action.triggered.connect(parent_table.allToX)
+            selected_to_decision_action.triggered.connect(parent_table.selectedToX)
+            
+            move_selected_menu = self.addMenu("Move Selected")
+            move_all_menu = self.addMenu("Move All")
+            
+            move_selected_menu.addAction(selected_to_decision_action)
+            move_all_menu.addAction(all_to_decision_action)
+        
             all_to_other_action = QAction("To Pending", self)
             selected_to_other_action = QAction("To Pending", self)
             
@@ -719,7 +699,16 @@ class CandidatePendingTableContextMenu(TableContextMenu):
             
             move_all_menu.addAction(all_to_other_action)
             move_selected_menu.addAction(selected_to_other_action)
-        elif isinstance(self.parent(), PendingTable):
+            self.addSeparator()
+
+        
+        self.addAction(self.cut_action)
+        self.addAction(self.copy_action)
+        self.addAction(self.paste_action)
+        self.addSeparator()
+        
+        
+        if isinstance(self.parent(), PendingTable):
             insert_action = QAction("Insert Row", self)
             remove_action = QAction("Remove Row", self)
             

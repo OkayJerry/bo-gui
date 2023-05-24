@@ -1,10 +1,10 @@
+import json
+import pickle
 import threading
 from importlib import import_module
-from typing import List, Tuple, Union, Dict
-import pickle
-import json
-import numpy as np
+from typing import Dict, List, Tuple, Union
 
+import numpy as np
 from botorch.acquisition.knowledge_gradient import qKnowledgeGradient
 from botorch.acquisition.monte_carlo import qUpperConfidenceBound
 from PyQt5.QtCore import pyqtSignal
@@ -15,7 +15,6 @@ from components.model import interactiveGPBO, prior_mean_model_wrapper
 from components.plot import *
 from components.utils import *
 from components.view import *
-
 
 DTYPE = np.float64
 
@@ -83,6 +82,7 @@ class Controller(QMainWindow):
         assert len(BOUNDRY_HEADER) == 2
         
         self.GPBO = None
+        self.prior_mean_model = None
 
         if hasattr(self, "colorbars"):
             for cbar in self.colorbars.values():
@@ -100,8 +100,10 @@ class Controller(QMainWindow):
         self.main.epoch_label.setText(str(EPOCH))
         self.main.plot_button.setChecked(False)
         self.main.ucb_button.setChecked(True)
+        self.main.query_candidates_button.setEnabled(False)
         self.main.batch_spin_box.setValue(BATCH_SIZE)
         self.main.batch_spin_box.setRange(1, 100)
+        self.main.batch_spin_box.setEnabled(False)
         self.main.beta_spinbox.setValue(BETA)
         self.main.beta_spinbox.setEnabled(True)
         
@@ -109,11 +111,13 @@ class Controller(QMainWindow):
         self.main.candidate_pnt_table.setRowCount(0)
         self.main.candidate_pnt_table.setColumnCount(NUM_DIMENSIONS)
         self.main.candidate_pnt_table.setHorizontalHeaderLabels(DECISION_HEADER)
+        self.main.candidate_pnt_table.setEnabled(False)
         
         self.main.pending_pnt_table.clear()
         self.main.pending_pnt_table.setRowCount(0)
         self.main.pending_pnt_table.setColumnCount(NUM_DIMENSIONS)
         self.main.pending_pnt_table.setHorizontalHeaderLabels(DECISION_HEADER)
+        self.main.pending_pnt_table.setEnabled(False)
         
         self.main.x_table.clear()
         self.main.x_table.setColumnCount(NUM_DIMENSIONS)
@@ -160,9 +164,11 @@ class Controller(QMainWindow):
             src.blockSignals(True)
             dest.blockSignals(True)
 
-            items = src.take_items(selected)
-            if isinstance(src, PendingTable) or isinstance(src, CandidateTable):
+            if isinstance(src, PendingTable):
+                items = src.take_items(selected)
                 src.remove_empty_rows(True)
+            elif isinstance(src, CandidateTable):
+                items = src.copy_items(selected)
 
             dest.append_items(items)
             
@@ -178,11 +184,21 @@ class Controller(QMainWindow):
         def updateGP():
             try:
                 if not self.GPBO:
-                    self.GPBO = SuperGPBO(self)#, prior_mean_model=self.custom_function)
+                    self.GPBO = SuperGPBO(self)
+                    self.main.query_candidates_button.setEnabled(True)
+                    self.main.batch_spin_box.setEnabled(True)
+                    self.main.candidate_pnt_table.setEnabled(True)
+                    self.main.pending_pnt_table.setEnabled(True)
                 self.GPBO.update()
+                print(f"Actual: {self.prior_mean_model}")
+                print(f"GPBO: {self.GPBO.prior_mean_model}")
                 
                 if self.main.epoch_label.text() == 1:
                     self.centralWidget().tabs.setTabEnabled(1, True)
+                
+                self.main.candidate_pnt_table.setRowCount(0)
+                self.main.pending_pnt_table.setRowCount(0)
+                
             except Exception as exc:
                 print(exc)
                 QMessageBox.critical(self, "CRITICAL", str(exc), QMessageBox.Ok)
@@ -218,6 +234,7 @@ class Controller(QMainWindow):
                         # Set into Y table
                         self.main.y_table.setItem(i, 0, CenteredTableItem(str(obj_val)))
             except Exception as exc:
+                print(exc)
                 critical = QMessageBox(self)
                 critical.setWindowTitle('ERROR')
                 critical.setText(f'Function crashed: {type(exc)}')
@@ -248,6 +265,21 @@ class Controller(QMainWindow):
 
             src.setPreviousIndex(src.currentIndex())
 
+            if src is self.plots.acq_x_combobox or src is self.plots.acq_y_combobox:
+                fixed_value_table = self.plots.acq_fixed_table
+            elif src is self.plots.post_x_combobox or src is self.plots.post_y_combobox:
+                fixed_value_table = self.plots.post_fixed_table
+                
+            textA = src.currentText()
+            textB = other.currentText()
+            labels = fixed_value_table.get_vertical_labels()
+            for i, label in enumerate(labels):
+                if label == textA or label == textB:
+                    fixed_value_table.hideRow(i)
+                elif fixed_value_table.isRowHidden(i):
+                    fixed_value_table.showRow(i)
+                
+
             other.blockSignals(False)
             src.blockSignals(False)
         def onPlotsEpochChange(epoch: Union[str, int]):
@@ -263,9 +295,10 @@ class Controller(QMainWindow):
                 print(f"\t\tRemove Query {i}")
                 self.plots.query_combobox.removeItem(1)
 
-            for i in range(len(candidate_pnts)):
-                print(f"\t\tAdd Query {i}")
-                self.plots.query_combobox.addItem(f"{i + 1}")
+            if len(candidate_pnts) > 1:
+                for i in range(len(candidate_pnts)):
+                    print(f"\t\tAdd Query {i}")
+                    self.plots.query_combobox.addItem(f"{i + 1}")
         def on_new_file():
             self.set_initial_states()
         def on_open_file():
@@ -299,7 +332,7 @@ class Controller(QMainWindow):
             self.main.y_table.fill(self.GPBO.y)
             
             # Rotate array to fit bounds table and fill
-            bounds = np.rot90(self.GPBO.bounds)
+            bounds = np.rot90(self.GPBO.bounds, k=-1)
             self.main.boundry_table.fill(bounds)
 
             # Get candidates from GPBO.history[-1]['x1'] to put into candidate points
@@ -343,13 +376,22 @@ class Controller(QMainWindow):
                 def plot():
                     self.GPBO.plot(preview=True)
                     self.centralWidget().tabs.setTabEnabled(1, True)
+                    
                 thread = threading.Thread(target=plot)
                 thread.start()
+            else:
+                self.main.query_candidates_button.setEnabled(True)
+
+            self.main.batch_spin_box.setEnabled(True)
+            self.main.candidate_pnt_table.setEnabled(True)
+            self.main.pending_pnt_table.setEnabled(True)
         def on_plot_refresh():
             if self.GPBO:
                 self.GPBO.refresh_plots()
         def on_save_as():
             GPBO = self.GPBO
+            if not GPBO:
+                return
 
             filename = QFileDialog.getSaveFileName(self, "Save As", filter="All Files (*.*);;JSON File (*.json);;PICKLE File (*.pickle)")[0]  # previously tuple
             path, tag = os.path.split(filename)
@@ -360,6 +402,8 @@ class Controller(QMainWindow):
             for hist in GPBO.history:
                 hist_ = {}
                 for key, val in hist.items():
+                    if type(val) == np.ndarray:
+                        val = val.tolist()
                     if key == 'gp':
                         hist_[key] = None
                     elif key == 'acquisition':
@@ -370,8 +414,6 @@ class Controller(QMainWindow):
                         else:
                             hist_[key] = 'UCB'
                     else:
-                        if type(val) is not list:  # new
-                            val = val.tolist()
                         hist_[key] = val
                 data.append(hist_)
             
@@ -496,6 +538,7 @@ class Controller(QMainWindow):
         def queryGP():
             if self.GPBO:
                 self.main.query_candidates_button.setEnabled(False)
+                self.main.update_gp_button.setEnabled(False)
                 self.GPBO.query()
         def on_epoch_change(epoch: int):
             print(f"Epoch Changed To... {epoch}")
@@ -514,32 +557,52 @@ class Controller(QMainWindow):
             # Format string as a pseudo-function
             func_str = self.menu_bar.prior_win.text_edit.toPlainText()
             func_str = "def function(X):\n\t" + func_str.replace('\n', '\n\t')
+            print(func_str)
             
+            # if not self.GPBO:
             try:
                 exec(func_str, glbs, lcls)
                 custom_function = list(lcls.values())[0]
+                
+                test_dim = 2, self.main.x_table.rowCount()  # batch size x decision parameter dimension
+                test_pnt = np.random.random(test_dim)
+                test_result = custom_function(test_pnt)
+                
+                if test_result is None:
+                    warning = QMessageBox(self)
+                    warning.setWindowTitle("WARNING")
+                    warning.setIcon(QMessageBox.Warning)
+                    warning.setText("Return value of `None` cannot be utilized. Press 'OK' if you would like to make changes, otherwise the prior mean model will be discarded.")
+                    warning.setStandardButtons(QMessageBox.Ok)
+                    
+                    if warning.exec() == QMessageBox.Ok:
+                        self.menu_bar.prior_win.setWindowState(self.menu_bar.prior_win.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)  # restoring to normal state
+                        self.menu_bar.prior_win.activateWindow()
+                        self.menu_bar.prior_win.show()
+                    else:
+                        return
+                elif type(test_result) != np.ndarray or test_result.shape != (2,):
+                    warning = QMessageBox(self)
+                    warning.setWindowTitle("WARNING")
+                    warning.setIcon(QMessageBox.Warning)
+                    warning.setText("Return value must be vectorized (1 x len(X)) and of type `np.array`. Press 'OK' if you would like to make changes, otherwise the prior mean model will be discarded.")
+                    warning.setStandardButtons(QMessageBox.Ok)
+                    
+                    if warning.exec() == QMessageBox.Ok:
+                        self.menu_bar.prior_win.setWindowState(self.menu_bar.prior_win.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)  # restoring to normal state
+                        self.menu_bar.prior_win.activateWindow()
+                        self.menu_bar.prior_win.show()
+                    else:
+                        return
             
-                # self.GPBO.prior_mean_model = prior_mean_model_wrapper(custom_function, decision_transformer=self.GPBO.unnormalize)
-                # self.GPBO.prior_mean_model = custom_function
-                self.custom_function = custom_function
 
-                bounds = np.array(self.main.boundry_table.to_list())
-                
-                x = np.random.rand(2, 4)
-                print(x)
-                print(custom_function(x))
-                # print(X.shape, type(X), X.dtype)
-                # x = np.array(X)
-                # x1 = np.sum(x**2,axis=1)
-                # x2 = prior_levy(X)
-                # print(type(x1), x1.shape, x1.dtype)
-                # print(type(x2), x2.shape, x2.dtype)
-                # a = np.random.rand(2, len(bounds))
-                # a * bounds[1,:] - bounds[0,:] + bounds[0,:]
-                
-
+                if self.GPBO:
+                    self.GPBO.prior_mean_model = prior_mean_model_wrapper(custom_function, decision_transformer=self.GPBO.unnormalize)
+                else:
+                    self.prior_mean_model = custom_function
                 
             except Exception as exc:
+                print(exc)
                 critical = QMessageBox(self)
                 critical.setWindowTitle('ERROR')
                 critical.setText(f'Function crashed: {type(exc)}')
@@ -676,7 +739,6 @@ class Controller(QMainWindow):
         self.centralWidget().tabs.tabEnabled.connect(on_tab_enabled)
 
 
-
 class SuperGPBO(interactiveGPBO):
     """
     This is a super class of the interactive GPBO. Its purpose is to add another
@@ -724,7 +786,6 @@ class SuperGPBO(interactiveGPBO):
                          prior_mean_model=prior)
         self.updateProgressBar.connect(self.control.main.progress_button.updateValue)
         self.updateProgressBar.connect(self.control.plots.progress_button.updateValue)
-                
     def _bool_projection(self, projection_type: str) -> Tuple[bool, bool]:
         """Converts projection type into a boolean sequence.
 
@@ -823,8 +884,7 @@ class SuperGPBO(interactiveGPBO):
 
         return np.array(bounds, dtype=DTYPE)
     def _prior(self):
-        # self._prior_mean = 
-        pass
+        return self.control.prior_mean_model
     def _epoch(self) -> int:
         """Retrieves the epoch.
 
@@ -984,26 +1044,35 @@ class SuperGPBO(interactiveGPBO):
                 print("!")
                 self.control.main.progress_button.enableProgressBar()
                 self.control.plots.progress_button.enableProgressBar()
-                print("@")
+                print("!")
                 if preview:
                     epoch = self._epoch()
                     canvas = self.control.main.canvas
                 else:
                     epoch = self.control.plots.epoch_spinbox.value()
                     canvas = self.control.plots.canvas
+                print("!")
                 print(epoch)
                     
+                print("!")
                 query_cb = self.control.plots.query_combobox
                 i = None
                 if main and query_cb.currentText() != "All":
                     i = int(query_cb.currentText()) - 1
+                elif preview:
+                    i = len(self.history[epoch]["x1"]) - 1
+                    i = i if i > -1 else None
+                print("!")
                     
                 acq, post, obj = self._get_info(gp=preview, proj=main)
                 acq_min, acq_mean = self._bool_projection(acq["Projection Type"])
                 post_min, post_mean = self._bool_projection(post["Projection Type"])
+                print("!")
 
                 acq_labels = acq["X Label"], acq["Y Label"]
                 post_labels = post["X Label"], post["Y Label"]
+                beta = self.control.main.beta_spinbox.value() if self.control.main.ucb_button.isChecked() else None
+                print("!")
                 
                 canvas.clear()
                 print("*******")
@@ -1017,7 +1086,9 @@ class SuperGPBO(interactiveGPBO):
                                                 project_minimum=acq_min,
                                                 project_mean=acq_mean,
                                                 i_query=i,
+                                                beta=beta,
                                                 fixed_values_for_each_dim=acq["Fixed Values"])
+                    print("LCB Done")
                     self.plot_GPmean_2D_projection(self.control,
                                                 epoch=epoch,
                                                 axes=post["Axes"],
@@ -1025,9 +1096,11 @@ class SuperGPBO(interactiveGPBO):
                                                 dim_yaxis=post["Y Dimension"],
                                                 project_minimum=post_min,
                                                 project_mean=post_mean,
+                                                i_query=i,
                                                 fixed_values_for_each_dim=post["Fixed Values"])
-                except RuntimeError:
-                    # QMessageBox.warning(self.control, "WARNING", "Plotting can take a long time... continue?", QMessageBox.Ok | QMessageBox.Cancel)
+                    print("GPmean Done")
+                except RuntimeError as exc:  # Occurs when the dimensions are too high
+                    print(exc)
                     self.plot_LCB_2D_projection(self.control, 
                                                 epoch=epoch, 
                                                 axes=acq["Axes"],
@@ -1036,8 +1109,10 @@ class SuperGPBO(interactiveGPBO):
                                                 project_minimum=acq_min,
                                                 project_mean=acq_mean,
                                                 i_query=i,
+                                                beta=beta,
                                                 fixed_values_for_each_dim=acq["Fixed Values"],
                                                 overdrive=True)
+                    print("LCB Done")
                     self.plot_GPmean_2D_projection(self.control,
                                                 epoch=epoch,
                                                 axes=post["Axes"],
@@ -1047,10 +1122,11 @@ class SuperGPBO(interactiveGPBO):
                                                 project_mean=post_mean,
                                                 fixed_values_for_each_dim=post["Fixed Values"],
                                                 overdrive=True)
+                    print("GPmean Done")
                     
                 self.plot_obj_history(axes=obj["Axes"])
-                
-                if epoch == 1 and self.control.main.plot_button.isEnabled():
+                print("Through Plotting")
+                if epoch < 2 and self.control.main.plot_button.isEnabled():
                     # Show selectcanvas axes
                     canvas.acquisition_ax.set_visible(True)
                     canvas.posterior_ax.set_visible(True)
@@ -1061,12 +1137,13 @@ class SuperGPBO(interactiveGPBO):
                     for ax in canvas.get_axes():
                         if not ax.get_visible():
                             ax.set_visible(True)
-                else:
+                elif epoch > 1:
                     # Hide select canvas axes
                     canvas.acquisition_ax.set_visible(False)
                     canvas.posterior_ax.set_visible(False)
                 
                 if main:
+                    print("Here")
                     canvas.format(acq_labels, post_labels)
                     canvas.reload()  
                 elif preview:
@@ -1090,10 +1167,17 @@ class SuperGPBO(interactiveGPBO):
                 
                 self.plot_obj_history(axes=obj["Axes"])
 
-                canvas.acquisition_ax.set_visible(False)
-                canvas.posterior_ax.set_visible(False)
-                canvas.obj_history_ax.set_visible(True)
-                canvas._get_obj_twinx().set_visible(True)
+                if epoch > 1:
+                    canvas.acquisition_ax.set_visible(False)
+                    canvas.posterior_ax.set_visible(False)
+                    canvas.obj_history_ax.set_visible(True)
+                    canvas._get_obj_twinx().set_visible(True)
+                else:
+                    canvas.acquisition_ax.set_visible(False)
+                    canvas.posterior_ax.set_visible(False)
+                    canvas.obj_history_ax.set_visible(False)
+                    canvas._get_obj_twinx().set_visible(False)
+                    
                 
                 acq_labels = acq["X Label"], acq["Y Label"]
                 post_labels = post["X Label"], post["Y Label"]
@@ -1101,9 +1185,6 @@ class SuperGPBO(interactiveGPBO):
                                   compact=True, legends=False)
                 canvas.reload(compact=True)
                 
-                
-                
-
         thread = threading.Thread(target=wrapper)
         thread.start()
     def refresh_plots(self):
@@ -1125,10 +1206,13 @@ class SuperGPBO(interactiveGPBO):
         print("Updating GP...")
         
         x, y = self._xy()
+        print("Got XY")
         
         self.update_GP(x=x,y=y)
+        print("GP Updated")
         self._update_epoch()
-
+        print("Epoch Updated")
+        
         self.plot(preview=True)
     def query(self) -> None:
         """Query for candidate points."""
@@ -1170,11 +1254,18 @@ class SuperGPBO(interactiveGPBO):
             epoch = self._epoch()
             pending_pnts = self._pending_pnts()
             
-            candidates = self.query_candidates(batch_size=bsize, X_pending=pending_pnts)
-            candidates = orderByDistance(self.x[-1], candidates, weights=None)
-            print(f"\t{candidates.tolist()}")
+            if self.control.main.ucb_button.isChecked():
+                acq_func = qUpperConfidenceBound
+                acq_args = {"beta": self.control.main.beta_spinbox.value()}
+            else:
+                acq_func = qKnowledgeGradient
+                acq_args = {"num_fantasies": 64}
+
+            candidates = self.query_candidates(batch_size=bsize, X_pending=pending_pnts, acquisition_func=acq_func, acquisition_func_args=acq_args)
+            candidates = orderByDistance(self.x[-1], candidates, weights=None).tolist()
+            print(f"\t{candidates}")
             
-            candidates = candidates.tolist()
+            self.control.main.candidate_pnt_table.setRowCount(0)  # pseudo-clear
             self.control.main.candidate_pnt_table.setRowCount(len(candidates))
             self.control.main.candidate_pnt_table.fill(candidates)
             
@@ -1184,12 +1275,13 @@ class SuperGPBO(interactiveGPBO):
                 for i in range(1, self.control.plots.query_combobox.count()):
                     self.control.plots.query_combobox.removeItem(1)
                 
-                for i in range(len(candidate_pnts) - 1):
+                for i in range(len(candidate_pnts)):
                     self.control.plots.query_combobox.addItem(f'{i+1}')
             
             if self.control.main.plot_button.isChecked():
                 self.plot(preview=True)
             self.control.main.query_candidates_button.setEnabled(True)
+            self.control.main.update_gp_button.setEnabled(True)
             
         thread = threading.Thread(target=wrapper)
         thread.start()
