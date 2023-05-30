@@ -1,28 +1,27 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-import numpy as np
-from typing import List, Tuple, Union, Dict
-from collections import OrderedDict
+from typing import List, Tuple, Union, Dict, NoReturn
+
 
 class EmptyStringDoubleValidator(QDoubleValidator):
-    def validate(self, input_str, pos):
+    def validate(self, input_str: str, pos: QPoint) -> None:
         if input_str == '':
             return (QDoubleValidator.Acceptable, '', pos)
         return super().validate(input_str, pos)
 
 
 class DoubleDelegate(QItemDelegate):
-    def createEditor(self, parent, option, index):
+    def createEditor(self, parent: QWidget, option: QStyleOptionViewItem, index: QModelIndex):
         line_edit = QLineEdit(parent)
         line_edit.setStyleSheet("* { background-color: rgba(200, 200, 200, 255); }")
         line_edit.setAlignment(Qt.AlignCenter)
         line_edit.setValidator(EmptyStringDoubleValidator())
         return line_edit
-    def setEditorData(self, editor, index):
+    def setEditorData(self, editor: QWidget, index: QModelIndex):
         value = index.data(Qt.EditRole)
         editor.setText(value)
-    def setModelData(self, editor, model, index):
+    def setModelData(self, editor: QWidget, model: QAbstractItemModel, index: QModelIndex):
         text = editor.text()
         model.setData(index, text, Qt.EditRole)
 
@@ -35,7 +34,7 @@ class CenteredTableItem(QTableWidgetItem):
 
 
 class BaseCellContextMenu(QMenu):
-    def cut(self):
+    def cut(self) -> None:
         """Cuts selected items as their text from the parent QTableWidget."""
         s = ""
         for selection_range in self.parent().selectedRanges():
@@ -49,7 +48,7 @@ class BaseCellContextMenu(QMenu):
                 
         cb = QApplication.clipboard()
         cb.setText(s, mode=cb.Clipboard)
-    def copy(self):
+    def copy(self) -> None:
         """Copies selected items as their text from the parent QTableWidget."""
         s = ""
         for selection_range in self.parent().selectedRanges():
@@ -62,7 +61,7 @@ class BaseCellContextMenu(QMenu):
 
         cb = QApplication.clipboard()
         cb.setText(s, mode=cb.Clipboard)
-    def paste(self):
+    def paste(self) -> None:
         """
         Pastes items from clipboard into table.
         
@@ -82,29 +81,29 @@ class BaseCellContextMenu(QMenu):
                     if column_index + start_column < self.parent().columnCount():
                         item = CenteredTableItem(value)
                         self.parent().setItem(row_index + start_row, column_index + start_column, item)
-    def clear_contents(self):
+    def clear_contents(self) -> None:
         """Clears the contents of the currently selected cell(s)."""
         for selection_range in self.parent().selectedRanges():
             for row in range(selection_range.topRow(), selection_range.bottomRow() + 1):
                 for column in range(selection_range.leftColumn(), selection_range.rightColumn() + 1):
                     item = self.parent().item(row, column)
                     item.setText("") if item else None
-    def insert_row(self, pos: QPoint):
+    def insert_row(self, pos: QPoint) -> None:
         """Inserts a row to the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().insertRow(self.parent().rowCount() if model_index.row() == -1 else model_index.row())
         self.parent().dimensionsChanged.emit(0, model_index.row())
-    def insert_column(self, pos: QPoint):
+    def insert_column(self, pos: QPoint) -> None:
         """Inserts a column to the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().insertColumn(model_index.column())
         self.parent().dimensionsChanged.emit(2, model_index.column())
-    def remove_row(self, pos: QPoint):
+    def remove_row(self, pos: QPoint) -> None:
         """Removes a row from the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().removeRow(model_index.column())
         self.parent().dimensionsChanged.emit(1, model_index.column())
-    def remove_column(self, pos: QPoint):
+    def remove_column(self, pos: QPoint) -> None:
         """Removes a column from the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().removeColumn(model_index.column())
@@ -113,8 +112,8 @@ class BaseCellContextMenu(QMenu):
 
 
 class BaseTable(QTableWidget):
-    dimensionsChanged = pyqtSignal(int, int)  # Row Added = 0, Row Removed = 1, Column Added = 2, Column Removed = 3
-    headerChanged = pyqtSignal(int, str)
+    dimensionsChanged = pyqtSignal(int, int)  # Row Added = 0, Row Removed = 1, Column Added = 2, Column Removed = 3; Index
+    headerChanged = pyqtSignal(int, str)  # Index; Label
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -125,7 +124,7 @@ class BaseTable(QTableWidget):
         self.setItemDelegate(DoubleDelegate(self))  # Allow only numerical keystrokes
         self.itemSelectionChanged.connect(self.verifyCurrentCellExists)
         self.currentItemChanged.connect(self.verifyCurrentCellExists)
-    def verifyCurrentCellExists(self):
+    def verifyCurrentCellExists(self) -> None:
         if not self.currentItem() or not type(self.currentItem()) is CenteredTableItem:
             self.setItem(self.currentRow(), self.currentColumn(), CenteredTableItem())
     def to_list(self) -> List[List[Union[float, None]]]:
@@ -143,14 +142,6 @@ class BaseTable(QTableWidget):
             data.append(data_row)
 
         return data
-    def to_dim(self) -> Dict[int, float]:
-        d = {}
-        
-        for row_n in range(self.rowCount()):
-            if not self.isRowHidden(row_n):
-                item = self.item(row_n, 0)
-                d[row_n] = float(item.text()) if item.text() != "" else 0.0
-        return d
     def fill(self, data: List[List[float]]) -> None:
         """
         Fills the table with 2-dimensional data.
@@ -193,27 +184,7 @@ class BaseTable(QTableWidget):
                 column_number = self.columnCount() - i % self.columnCount() - 1
 
                 self.setItem(row_number, column_number, item)    
-    def is_bottom_row_full(self):
-        """
-        Checks if bottom row is full.
-
-        Returns:
-            Bool: True if full, false if not.
-        """
-        # Get the number of columns in the table
-        column_count = self.columnCount()
-
-        # Get the index of the bottom row
-        bottom_row_index = self.rowCount() - 1
-
-        # Iterate over the cells in the bottom row and check if they are filled with text
-        for i in range(column_count):
-            item = self.item(bottom_row_index, i)
-            if item is None or item.text() == "":
-                return False
-
-        return True
-    def remove_empty_rows(self, remove_no_text=True):
+    def remove_empty_rows(self, remove_no_text=True) -> None:
         """Removes all empty rows from the table.
 
         Args:
@@ -242,7 +213,7 @@ class BaseTable(QTableWidget):
         # Remove in reverse so that other row indices don't shift
         for row in reversed(rows_to_remove):
             self.removeRow(row)
-    def remove_by_item(self, items: List[QTableWidgetItem], delete_item=True):
+    def remove_by_item(self, items: List[QTableWidgetItem], delete_item=True) -> None:
         """Removes each item from a list of items.
 
         Args:
@@ -260,7 +231,7 @@ class BaseTable(QTableWidget):
             else:
                 # .takeItem keeps it the item in memory
                 self.takeItem(row, column)
-    def take_items(self, selected=False):
+    def take_items(self, selected=False) -> None:
         if selected:
             items = self.selectedItems()
             self.remove_by_item(items, delete_item=False)
@@ -289,30 +260,6 @@ class BaseTable(QTableWidget):
                     item.setText(text)
                     items.append(item)
         return items
-    def fill_row_with_items(self, row: int, item_class):
-        """Fills row with items of the provided class.
-
-        Args:
-            row (int): The row number to fill.
-            item_class (class): Uninstantiated QTableWidgetItem subclass.
-        """
-        for column in range(self.columnCount()):
-            if not self.item(row, column):
-                self.setItem(row, column, item_class())
-    def set_row_count_and_fill(self, row_count: int, item_class: QTableWidgetItem):
-        """Sets row count of table and fills it with items while blocking signals.
-
-        Args:
-            row_count (Int): Number of rows.
-            item_class (class): Uninstantiated QTableWidgetItem subclass.
-        """
-        self.blockSignals(True)
-        self.setRowCount(row_count)
-        
-        for row in range(self.rowCount()):
-            self.fill_row_with_items(row, item_class)
-
-        self.blockSignals(False)
     def get_horizontal_labels(self) -> List[Union[str, None]]:
         l = []
         for i in range(self.columnCount()):
@@ -325,31 +272,6 @@ class BaseTable(QTableWidget):
             item = self.verticalHeaderItem(i)
             l.append(item.text() if item else None)
         return l
-    def show_all_rows(self):
-        """Shows all hidden rows of a table.
-
-        Args:
-            table (QTableWidget): Table to reveal.
-        """
-        for row in range(self.rowCount()):
-            if self.isRowHidden(row):
-                self.setRowHidden(row, False)
-    def hide_header_by_labels(self, header_labels: List[str], hide_row=True):
-        """Hides row/column based on provided header labels.
-
-        Args:
-            table (QTableWidget): Parent table.
-            header_labels (list[str]): List of header labels.
-            hide_row (bool, optional): Whether to hide row or column. Defaults to True.
-        """
-        if hide_row:
-            for row in range(self.rowCount()):
-                if self.verticalHeaderItem(row).text() in header_labels:
-                    self.setRowHidden(row, True)
-        else:
-            for column in range(self.columnCount()):
-                if self.horizontalHeaderItem(column).text() in header_labels:
-                    self.setColumnHidden(column, True)
 
 
 class XTable(BaseTable):
@@ -357,8 +279,6 @@ class XTable(BaseTable):
         super().__init__(*args, **kwargs)
         MINIMUM_COLUMN_SIZE = 100
         
-        self.enableColumnChanges(True)
-
         self.horizontalHeader().setMinimumSectionSize(MINIMUM_COLUMN_SIZE)
         self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.horizontalHeader().customContextMenuRequested.connect(self.onHeaderContextMenuRequest)
@@ -393,7 +313,7 @@ class XTable(BaseTable):
             rename_action = QAction("Rename", self)
             rename_action.triggered.connect(self.rename)
             self.addAction(rename_action)
-        def rename(self):
+        def rename(self) -> None:
             prev_text = self.parent().horizontalHeaderItem(self.column).text()
             new_text, ok = QInputDialog.getText(self.parent(), f"Rename", f"Header:", text=prev_text)
             if ok:
@@ -463,7 +383,7 @@ class YTable(BaseTable):
             rename_action = QAction("Rename", self)
             rename_action.triggered.connect(self.rename)
             self.addAction(rename_action)
-        def rename(self):
+        def rename(self) -> None:
             prev_text = self.parent().horizontalHeaderItem(self.column).text()
             new_text, ok = QInputDialog.getText(self.parent(), f"Rename", f"Header:", text=prev_text)
             if ok:
@@ -554,7 +474,19 @@ class BoundryTable(BaseTable):
         context_menu.popup(self.horizontalHeader().viewport().mapToGlobal((pos)))
     def onCellContextMenuRequest(self, pos: QPoint) -> None:
         context_menu = self.CellContextMenu(pos, parent=self)
+        if not self.allowsColumnChanges():
+            context_menu.insert_column_action.setVisible(False)
+            context_menu.remove_column_action.setVisible(False)
         context_menu.popup(self.viewport().mapToGlobal(pos))
+    def enableColumnChanges(self, b: bool) -> None:
+        """Whether the user can insert/remove columns."""
+        if type(b) is bool:
+            self._allow_column_changes = b
+        else:
+            raise ValueError(f"`b` must be type `bool`. Got {type(b)}.")
+    def allowsColumnChanges(self) -> bool:
+        """Whether `self` can insert/remove columns."""
+        return self._allow_column_changes
     
     class HeaderContextMenu(QMenu):
         def __init__(self, column: int, *args, **kwargs):
@@ -564,7 +496,7 @@ class BoundryTable(BaseTable):
             rename_action = QAction("Rename", self)
             rename_action.triggered.connect(self.rename)
             self.addAction(rename_action)
-        def rename(self):
+        def rename(self) -> None:
             prev_text = self.parent().horizontalHeaderItem(self.column).text()
             new_text, ok = QInputDialog.getText(self.parent(), f"Rename", f"Header:", text=prev_text)
             if ok:
@@ -687,6 +619,17 @@ class PendingTable(BaseTable):
             self.addAction(self.clear_contents_action)
 
 
+class FixTable(BaseTable):
+    def to_dict(self) -> Dict[int, float]:
+        d = {}
+        
+        for row_n in range(self.rowCount()):
+            if not self.isRowHidden(row_n):
+                item = self.item(row_n, 0)
+                d[row_n] = float(item.text()) if item and item.text() != "" else 0.0
+        return d
+
+
 class MemoryLineEdit(QLineEdit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -697,11 +640,11 @@ class MemoryComboBox(QComboBox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._previous: int = None
-    def clear(self):
+    def clear(self) -> None:
         super().clear()
         
         self._previous: int = None
-    def setPreviousIndex(self, index: int):
+    def setPreviousIndex(self, index: int) -> None:
         self._previous = index 
     def previousIndex(self) -> int:
         return self._previous
@@ -709,7 +652,7 @@ class MemoryComboBox(QComboBox):
 
 class Tabs(QTabWidget):
     tabEnabled = pyqtSignal(int, bool)
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
     def setTabEnabled(self, index: int, a1: bool) -> None:
         self.tabEnabled.emit(index, a1)
@@ -719,7 +662,7 @@ class Tabs(QTabWidget):
 class ProgressButton(QWidget):
     progressBarEnabled = pyqtSignal(bool)
 
-    def __init__(self, button: QPushButton, *args, **kwargs) -> None:
+    def __init__(self, button: QPushButton, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         
@@ -740,15 +683,13 @@ class ProgressButton(QWidget):
         self.setContentsMargins(0, 0, 0, 0)
         self.setMaximumHeight(25)
         self.setLayout(layout)
-    def enableProgressBar(self):
+    def enableProgressBar(self) -> None:
         self.layout().setCurrentIndex(self._PROGRESS_BAR) 
-        print("$$")
         self.progressBarEnabled.emit(True)
-        print("##")
-    def disableProgressBar(self):
+    def disableProgressBar(self) -> None:
         self.layout().setCurrentIndex(self._BUTTON)
         self.progressBarEnabled.emit(False)
-    def _checkProgressBar(self, value: int):
+    def _checkProgressBar(self, value: int) -> None:
         if value >= self._progress_bar.maximum():
             self.reset()
     def reset(self) -> None:

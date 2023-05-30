@@ -1,5 +1,4 @@
-from typing import (Any, Callable, Dict, List, NoReturn, Optional, Tuple, Type,
-                    Union)
+from typing import List, Tuple, Union, NoReturn, Generator
 
 import numpy as np
 import torch
@@ -14,13 +13,11 @@ from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PyQt5.QtCore import pyqtSignal
 
-import components as cmp
-
 
 class BaseCanvas(FigureCanvasQTAgg):
     progressUpdate = pyqtSignal(int)
     
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
         self.acquisition_ax: Axes = None
@@ -39,8 +36,8 @@ class BaseCanvas(FigureCanvasQTAgg):
         
         if siblings:
             return siblings[0]
-    def _handle_colorbar(self, ax, data, y_grid):
-        size_logic = lambda size: size - 2 if isinstance(ax.figure.canvas, cmp.plot.MainCanvas) else size
+    def _handle_colorbar(self, ax, data, y_grid) -> None:
+        size_logic = lambda size: size - 2 if isinstance(ax.figure.canvas, MainCanvas) else size
         
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -58,7 +55,7 @@ class BaseCanvas(FigureCanvasQTAgg):
         if ax in self.colorbars.keys():
             self.colorbars[ax].remove()
         self.colorbars[ax] = cbar
-    def _calculate_progress(self, it, size=40):  # Python3.6+
+    def _calculate_progress(self, it, size=40) -> Generator:  # Python3.6+
         count = len(it)
 
         self.progressUpdate.emit(0)
@@ -97,7 +94,7 @@ class BaseCanvas(FigureCanvasQTAgg):
         for ax in self.get_axes():
             if ax.get_visible():
                 ax.set_visible(False)
-    def plot_acquisition(self, GPBO, epoch=None, i_query=None, beta=None, dim_xaxis=0, dim_yaxis=1, project_minimum=True, project_mean=False, fixed_values_for_each_dim=None, overdrive=False, grid_points_each_dim=25, axes=None):
+    def plot_acquisition(self, GPBO, epoch=None, i_query=None, beta=None, dim_xaxis=0, dim_yaxis=1, project_minimum=True, project_mean=False, fixed_values_for_each_dim=None, overdrive=False, grid_points_each_dim=25, axes=None) -> None:
         '''
         fixed_values_for_each_dim: dict of key: dimension, val: value to fix for that dimension
         '''
@@ -251,7 +248,7 @@ class BaseCanvas(FigureCanvasQTAgg):
                         dim_yaxis], s=50, c="r", marker='x', label="pending")
             
             self._handle_colorbar(ax, data, y_grid)
-    def plot_posterior(self, GPBO, epoch=None, i_query=None, dim_xaxis=0, dim_yaxis=1, project_minimum=True, project_mean=False, fixed_values_for_each_dim=None, overdrive=False, grid_points_each_dim=25, axes=None):
+    def plot_posterior(self, GPBO, epoch=None, i_query=None, dim_xaxis=0, dim_yaxis=1, project_minimum=True, project_mean=False, fixed_values_for_each_dim=None, overdrive=False, grid_points_each_dim=25, axes=None) -> None:
         '''
         fixed_values_for_each_dim: dict of key: dimension, val: value to fix for that dimension
         '''
@@ -399,7 +396,7 @@ class BaseCanvas(FigureCanvasQTAgg):
                         dim_yaxis], s=50, c="r", marker='x', label="pending")
                 
             self._handle_colorbar(ax, data, y_grid)
-    def plot_obj_history(self, GPBO, plot_best_only=False, axes: list = []) -> Union[Axes, None]:
+    def plot_obj_history(self, GPBO, plot_best_only=False, axes: list = []) -> None:
         if not self.obj_history_ax and not axes:
             raise ValueError("No axes provided and `self.acquisition_ax` is `None`.")
         
@@ -425,8 +422,6 @@ class BaseCanvas(FigureCanvasQTAgg):
                 else:
                     ax1 = ax.get_shared_x_axes().get_siblings(ax)[0]
                 ax1.plot(GPBO.history[-1]['y'], color='C1', label='Loss')
-
-        return axes if not self.obj_history_ax else self.obj_history_ax
 
 
 class NavigationToolbar(NavigationToolbar2QT):

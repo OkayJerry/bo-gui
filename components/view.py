@@ -1,6 +1,5 @@
 import os
 import sys
-from collections import OrderedDict
 
 from PyQt5.QtCore import QRect, Qt, pyqtSignal
 from PyQt5.QtGui import *
@@ -8,7 +7,6 @@ from PyQt5.QtWidgets import *
 
 from components.plot import *
 from components.utils import *
-from typing import Callable
 
 
 class CentralView(QWidget):
@@ -219,7 +217,7 @@ class PlotsView(QWidget):
         self.acq_fix_button = QRadioButton('Project By Fixing')
         self.acq_x_combobox = MemoryComboBox()
         self.acq_y_combobox = MemoryComboBox()
-        self.acq_fixed_table = BaseTable()
+        self.acq_fixed_table = FixTable()
             
         acq_xy_qwidget = QWidget()        
         acq_xy_layout = QGridLayout()
@@ -245,7 +243,7 @@ class PlotsView(QWidget):
         self.post_fix_button = QRadioButton('Project By Fixing')
         self.post_x_combobox = MemoryComboBox()
         self.post_y_combobox = MemoryComboBox()
-        self.post_fixed_table = BaseTable()
+        self.post_fixed_table = FixTable()
         
         post_xy_qwidget = QWidget()
         post_xy_layout = QGridLayout()

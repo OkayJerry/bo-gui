@@ -1,7 +1,7 @@
 import json
 import pickle
 import threading
-from typing import Dict, List, Tuple, Union
+from typing import List, Union, NoReturn
 import traceback
 
 import numpy as np
@@ -71,7 +71,6 @@ class Controller(QMainWindow):
         NUM_DIMENSIONS: int = 4
         BATCH_SIZE: int = 1
         BETA: float = 2.0
-        FIXED_VAL: float = 0.0
         ROW_COUNT = 200
         
         assert EPOCH > -1
@@ -128,6 +127,7 @@ class Controller(QMainWindow):
         self.main.x_table.setColumnCount(NUM_DIMENSIONS)
         self.main.x_table.setRowCount(ROW_COUNT)
         self.main.x_table.setHorizontalHeaderLabels(DECISION_HEADER)
+        self.main.x_table.enableColumnChanges(True)
             
         self.main.y_table.clear()
         self.main.y_table.setColumnCount(1)
@@ -139,6 +139,7 @@ class Controller(QMainWindow):
         self.main.boundry_table.setRowCount(2)
         self.main.boundry_table.setHorizontalHeaderLabels(DECISION_HEADER)
         self.main.boundry_table.setVerticalHeaderLabels(BOUNDRY_HEADER)
+        self.main.boundry_table.enableColumnChanges(True)
         
         self.main.canvas.hide_axes()
         self.main.canvas.draw_idle()
@@ -155,7 +156,12 @@ class Controller(QMainWindow):
     def set_connections(self) -> None:
         
         # LOGIC
-        def movePoints(src: BaseTable, dest: BaseTable, selected: bool = False):
+        def movePoints(src: BaseTable, dest: BaseTable, selected: bool = False) -> None:
+            """
+            Moves the points from one to another. Copies the points if the 
+            source table is of type `CandidateTable`, takes the points if the 
+            source table is of type `PendingTable`.
+            """
             src.blockSignals(True)
             dest.blockSignals(True)
 
@@ -176,7 +182,7 @@ class Controller(QMainWindow):
             # Allow the signal to operate again
             dest.blockSignals(False)
             src.blockSignals(False)
-        def onGotObjectiveFunction(func_str: str):
+        def onGotObjectiveFunction(func_str: str) -> None:
             r"""
             `function` is a string-version of the code within the function.
             
@@ -186,6 +192,10 @@ class Controller(QMainWindow):
                 return X
             ```
             ...which as a string is "def objective_function(X):\n\treturn X".
+            
+            Presents a pop-up if an exception occurs, otherwise it applies the
+            function to the corresponding objective value of each completed 
+            decision parameter.
             """
             self.main.y_table.blockSignals(True)
 
@@ -229,16 +239,18 @@ class Controller(QMainWindow):
                 
             # Allow the signal to operate again
             self.main.y_table.blockSignals(False)
-        def onPlotsComboBoxChange(src: MemoryComboBox, other: MemoryComboBox):
-            print("Plots ComboBox Change...")
-
+        def onPlotsComboBoxChange(src: MemoryComboBox, other: MemoryComboBox) -> None:
+            """
+            Whenever the source combobox changes, the other combobox must be 
+            assigned a new index if it is the same as the source. In this edge-
+            case, I chose to have them swap values.
+            """
             src.blockSignals(True)
             other.blockSignals(True)
                         
             prev = src.previousIndex()
 
             if src.currentIndex() == other.currentIndex():
-                print("\tSwapping ComboBoxes")
                 other.setPreviousIndex(prev)
                 other.setCurrentIndex(prev)
 
@@ -261,7 +273,11 @@ class Controller(QMainWindow):
 
             other.blockSignals(False)
             src.blockSignals(False)
-        def onPlotsEpochChange(epoch: Union[str, int]):
+        def onPlotsEpochChange(epoch: Union[str, int]) -> None:
+            """
+            Adds/removes query numbers from the query combobox depending upon the
+            current selected epoch.
+            """
             if not self.GPBO:
                 return
             
@@ -278,9 +294,17 @@ class Controller(QMainWindow):
                 for i in range(len(candidate_pnts)):
                     print(f"\t\tAdd Query {i}")
                     self.plots.query_combobox.addItem(f"{i + 1}")
-        def onNewFileRequest():
+        def onNewFileRequest() -> None:
+            """
+            Restores the program to its initial state.
+            """
             self.set_initial_states()
-        def onOpenFileRequest():
+        def onOpenFileRequest() -> None:
+            """
+            Opens a file dialog until it is closed or the correct file extension
+            is selected. With the correct file extension, it will initialize the
+            GPBO and enable the necessary widgets for the first epoch.
+            """
             while True:
                 filename = QFileDialog.getOpenFileName(self, 'Open File', filter="All Files (*.*);;JSON File (*.json)")[0]  # previously tuple
                 if filename:
@@ -349,10 +373,16 @@ class Controller(QMainWindow):
                 tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
             self.updatedGPBO.emit(self.GPBO.epoch())
-        def onPlotRefreshRequest():
+        def onPlotRefreshRequest() -> None:
+            """
+            Reloads all canvases.
+            """
             self.main.canvas.reload()
             self.plots.canvas.reload()
-        def onSaveFileAsRequest():
+        def onSaveFileAsRequest() -> None:
+            """
+            Presents a filedialog that allows the user to save the GPBO and saves it.
+            """
             GPBO = self.GPBO
             if not GPBO:
                 return
@@ -387,9 +417,9 @@ class Controller(QMainWindow):
             elif tag.endswith(".json"):
                 with open(path + tag, "w") as file:
                     json.dump(data, file)
-        def onOpenPreferencesRequest():
+        def onOpenPreferencesRequest() -> None:
             self.menu_bar.pref_win.show()
-        def app_font_size_change(size: int):
+        def app_font_size_change(size: int) -> None:
             self.preferences.setValue("App Font Size", size)
             self.app.setStyleSheet("QWidget {font-size: " + str(size) + "pt;}")
         def verify_path(line_edit: MemoryLineEdit) -> None:
@@ -400,7 +430,11 @@ class Controller(QMainWindow):
                 return
             QMessageBox.critical(self.menu_bar.pref_win, "ERROR", "Invalid file path.", QMessageBox.Ok)
             line_edit.setText(line_edit.previous)
-        def onTableDimensionsChanged(table: QTableWidget, command_code: int, index: int):
+        def onTableDimensionsChanged(table: QTableWidget, command_code: int, index: int) -> None:
+            """
+            Depending upon the command used, handles the response of widgets
+            which are affected.
+            """
             ROW_INSERTED, ROW_REMOVED = 0, 1
             COLUMN_INSERTED, COLUMN_REMOVED = 2, 3
             TABLES = [self.main.x_table, self.main.y_table, self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
@@ -441,7 +475,17 @@ class Controller(QMainWindow):
                         tbl.removeColumn(index)
                         tbl.setHorizontalHeaderLabels(labels)
                         tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        def onGotPriorFunction(func_str: str):
+        def onGotPriorFunction(func_str: str) -> None:
+            r"""
+            `function` is a string-version of the code within the function.
+            
+            An example function might be...
+            ```
+            def objective_function(X):
+                return X
+            ```
+            ...which as a string is "def objective_function(X):\n\treturn X".
+            """
             glbs = {}
             lcls = {}
 
@@ -503,45 +547,52 @@ class Controller(QMainWindow):
                     self.menu_bar.prior_win.setWindowState(self.menu_bar.prior_win.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)  # restoring to normal state
                     self.menu_bar.prior_win.activateWindow()
                     self.menu_bar.prior_win.show()
-        def onHeaderChange(column: int, text: str):
+        def onHeaderChange(table: QTableWidget, column: int, text: str) -> None:
+            """
+            Since headers can be renamed, adjusts headers universally.
+            """
+            HORIZONTAL_TABLES = [self.main.x_table, self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
+            
             self.main.blockWidgetSignals(True)
             self.plots.blockWidgetSignals(True)
 
-            DECISION_HEADER = self.main.x_table.get_horizontal_labels()
+            HEADER = table.get_horizontal_labels()
             
-            self.main.boundry_table.setHorizontalHeaderLabels(DECISION_HEADER)
-            self.main.candidate_pnt_table.setHorizontalHeaderLabels(DECISION_HEADER)
-            self.main.pending_pnt_table.setHorizontalHeaderLabels(DECISION_HEADER)
+            for tbl in HORIZONTAL_TABLES:
+                if tbl is not table:
+                    tbl.setHorizontalHeaderLabels(HEADER)
 
             if self.centralWidget().tabs.isTabEnabled(1):
                 self.plots.acq_x_combobox.clear()
-                self.plots.acq_x_combobox.addItems(DECISION_HEADER)
+                self.plots.acq_x_combobox.addItems(HEADER)
                 self.plots.acq_x_combobox.setCurrentIndex(self.plots.acq_x_combobox.previousIndex() if self.plots.acq_x_combobox.previousIndex() else 0)
                 
                 self.plots.acq_y_combobox.clear()
-                self.plots.acq_y_combobox.addItems(DECISION_HEADER)
+                self.plots.acq_y_combobox.addItems(HEADER)
                 self.plots.acq_y_combobox.setCurrentIndex(self.plots.acq_y_combobox.previousIndex() if self.plots.acq_y_combobox.previousIndex() else 1)
 
                 self.plots.post_x_combobox.clear()
-                self.plots.post_x_combobox.addItems(DECISION_HEADER)
+                self.plots.post_x_combobox.addItems(HEADER)
                 self.plots.post_x_combobox.setCurrentIndex(self.plots.post_x_combobox.previousIndex() if self.plots.post_x_combobox.previousIndex() else 0)
                 
                 self.plots.post_y_combobox.clear()
-                self.plots.post_y_combobox.addItems(DECISION_HEADER)
+                self.plots.post_y_combobox.addItems(HEADER)
                 self.plots.post_y_combobox.setCurrentIndex(self.plots.post_y_combobox.previousIndex() if self.plots.post_y_combobox.previousIndex() else 1)
 
-                self.plots.acq_fixed_table.setVerticalHeaderLabels(DECISION_HEADER)
-                self.plots.post_fixed_table.setVerticalHeaderLabels(DECISION_HEADER)
+                self.plots.acq_fixed_table.setVerticalHeaderLabels(HEADER)
+                self.plots.post_fixed_table.setVerticalHeaderLabels(HEADER)
 
             self.plots.blockWidgetSignals(False)
             self.main.blockWidgetSignals(False)
         def onHorizontalScrollBarChange(value: int) -> None:
+            """Synchronizes horizontal scroll bar values."""
             self.main.x_table.horizontalScrollBar().setValue(value)
             self.main.y_table.horizontalScrollBar().setValue(value)
             self.main.boundry_table.horizontalScrollBar().setValue(value)
             self.main.candidate_pnt_table.horizontalScrollBar().setValue(value)
             self.main.pending_pnt_table.horizontalScrollBar().setValue(value)
-        def onUpdatedGPBO(epoch: int):
+        def onUpdatedGPBO(epoch: int) -> None:
+            """What must be done after the GPBO is updated."""
             print(f"Current Epoch: {epoch}")
             
             self.plot(self.main)
@@ -552,10 +603,16 @@ class Controller(QMainWindow):
             
             if not self.centralWidget().tabs.isTabEnabled(1):
                 self.startup.emit()
-        def onPlotStarted():
+        def onPlotStarted() -> None:
+            """
+            What must be done while the plotting occurs.
+            """
             self.main.progress_button.enableProgressBar()
             self.plots.progress_button.enableProgressBar()
-        def onPlotFinished(canvas_code: int):
+        def onPlotFinished(canvas_code: int) -> None:
+            """
+            What must be done after the plotting is finished.
+            """
             if canvas_code == self.main.CODE:
                 canvas = self.main.canvas
                 epoch = self.GPBO.epoch()
@@ -589,21 +646,16 @@ class Controller(QMainWindow):
                 epoch = self.plots.epoch_spinbox.value()
                 
                 # AXES VISIBLITY
-                if self.main.plot_button.isChecked():
-                    if epoch < 2 and self.main.plot_button.isEnabled():
-                        canvas.acquisition_ax.set_visible(True)
-                        canvas.posterior_ax.set_visible(True)
-                        canvas.obj_history_ax.set_visible(False)
-                        canvas._get_obj_twinx().set_visible(False)
-                    elif self.plots.plot_button.isEnabled() and epoch > 0:
-                        # Show all canvas axes
-                        for ax in canvas.get_axes():
-                            if not ax.get_visible():
-                                ax.set_visible(True)
-                    elif epoch > 1:
-                        # Hide select canvas axes
-                        canvas.acquisition_ax.set_visible(False)
-                        canvas.posterior_ax.set_visible(False)
+                if epoch < 2:
+                    canvas.acquisition_ax.set_visible(True)
+                    canvas.posterior_ax.set_visible(True)
+                    canvas.obj_history_ax.set_visible(False)
+                    canvas._get_obj_twinx().set_visible(False)
+                else:
+                    canvas.acquisition_ax.set_visible(True)
+                    canvas.posterior_ax.set_visible(True)
+                    canvas.obj_history_ax.set_visible(True)
+                    canvas._get_obj_twinx().set_visible(True)
             else:
                 raise ValueError(f"{canvas_code} is an invalid canvas code.")
                     
@@ -616,11 +668,16 @@ class Controller(QMainWindow):
             canvas.reload()
             
             self.main.query_candidates_button.setEnabled(True)
-        def onQueryStarted():
+        def onQueryStarted() -> None:
+            """
+            What must be done while the query is running.
+            """
             self.main.update_gp_button.setEnabled(False)
             self.main.query_candidates_button.setEnabled(False)
-        def onQueryFinished(candidates: List[List[float]]):
-            
+        def onQueryFinished(candidates: List[List[float]]) -> None:
+            """
+            What must be done after the query candidates are recieved.
+            """
             self.main.candidate_pnt_table.setRowCount(0)  # pseudo-clear
             self.main.candidate_pnt_table.setRowCount(len(candidates))
             self.main.candidate_pnt_table.fill(candidates)
@@ -639,13 +696,24 @@ class Controller(QMainWindow):
             
             if self.main.plot_button.isChecked():
                 self.plot(self.main)
-        def onUpdateGPRequest():
+        def onUpdateGPRequest() -> None:
+            """
+            What occurs when a update is request on the GPBO model.
+            """
             try:
                 self.update_GP()
+                self.main.candidate_pnt_table.setRowCount(0)
+                self.main.pending_pnt_table.setRowCount(0)
             except Exception as exc:
                 traceback.print_exc()
                 QMessageBox.critical(self, "CRITICAL", str(exc))
-        def onStartup():
+        def onStartup() -> None:
+            """
+            What occurs on the transition from model initializiation to GP updates.
+            """
+            self.main.x_table.enableColumnChanges(False)
+            self.main.boundry_table.enableColumnChanges(False)
+            
             self.main.candidate_pnt_table.setEnabled(True)
             self.main.pending_pnt_table.setEnabled(True)
             
@@ -722,7 +790,8 @@ class Controller(QMainWindow):
         self.menu_bar.saveAsFile.connect(onSaveFileAsRequest)
         self.menu_bar.preferences.connect(onOpenPreferencesRequest)
         
-        self.main.x_table.headerChanged.connect(onHeaderChange)
+        self.main.x_table.headerChanged.connect(lambda col, text: onHeaderChange(self.main.x_table, col, text))
+        self.main.boundry_table.headerChanged.connect(lambda col, text: onHeaderChange(self.main.boundry_table, col, text))
 
         self.main.x_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.x_table, code, index))
         self.main.y_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.y_table, code, index))
@@ -764,7 +833,7 @@ class Controller(QMainWindow):
         self.menu_bar.pref_win.app_font_sb.valueChanged.connect(app_font_size_change)
         self.menu_bar.pref_win.path_log_le.editingFinished.connect(lambda: verify_path(self.menu_bar.pref_win.path_log_le))
 
-    def update_GP(self):
+    def update_GP(self) -> None:
         x = self.main.x_table.to_list()
         y = self.main.y_table.to_list()
         
@@ -816,7 +885,7 @@ class Controller(QMainWindow):
         else:
             self.GPBO.update_GP(x=x, y=y)
         self.updatedGPBO.emit(self.GPBO.epoch())
-    def plot(self, view: Union[MainView, PlotsView]):
+    def plot(self, view: Union[MainView, PlotsView]) -> None:
         if not hasattr(self, "GPBO") or not self.GPBO:
             raise AttributeError("The GPBO has not yet been initialized.")
         elif view is self.main:
@@ -854,7 +923,7 @@ class Controller(QMainWindow):
         elif self.plots.acq_fix_button.isChecked():
             acq_proj_min = False
             acq_proj_mean = False
-            acq_fixed_vals = self.plots.acq_fixed_table.to_dim()
+            acq_fixed_vals = self.plots.acq_fixed_table.to_dict()
         if self.GPBO.epoch() < 1 or self.plots.post_min_button.isChecked():
             post_proj_min = True
             post_proj_mean = False
@@ -866,7 +935,7 @@ class Controller(QMainWindow):
         elif self.plots.acq_fix_button.isChecked():
             post_proj_min = False
             post_proj_mean = False
-            post_fixed_vals = self.plots.acq_fixed_table.to_dim()
+            post_fixed_vals = self.plots.acq_fixed_table.to_dict()
 
         # KWARGS
         beta = self.main.beta_spinbox.value() if self.main.ucb_button.isChecked() else None
@@ -887,7 +956,7 @@ class Controller(QMainWindow):
                 
         thread = threading.Thread(target=plot)
         thread.start()
-    def query(self):
+    def query(self) -> None:
         self.queryStarted.emit()
         
         # PENDING POINTS

@@ -1,18 +1,15 @@
+import json
 import os
 import pickle
-import sys
-import threading
 import time
-import json
 import warnings
-from copy import deepcopy as copy
 from datetime import date
-from typing import (Any, Callable, Dict, List, NoReturn, Optional, Tuple, Type,
-                    Union)
+from typing import NoReturn, Dict, Any, Union, List
+
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 import numpy as np
 import torch
-from botorch.acquisition import UpperConfidenceBound
 from botorch.acquisition.knowledge_gradient import qKnowledgeGradient
 from botorch.acquisition.monte_carlo import qUpperConfidenceBound
 from botorch.fit import fit_gpytorch_model
@@ -21,12 +18,7 @@ from botorch.optim import optimize_acqf
 from gpytorch.constraints import Interval
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from PyQt5.QtCore import QObject, pyqtSignal
 from torch import Tensor
-from PyQt5.QtWidgets import QWidget, QMessageBox
-import components as cmp
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
 warnings.filterwarnings("ignore")
 
@@ -40,7 +32,7 @@ def train_simpleNN(model, x_decision, x_env, y,
                    lr=None, lr_func=None, optimizer=None, optim_kwargs=None,
                    epochs=None, maxtime=None,
                    device=None, hist=None,
-                   ):
+                   ) -> Dict[str, list[Any]]:
 
     assert lr is not None or lr_func is not None
     lr = lr or lr_func(0)
@@ -84,32 +76,8 @@ def train_simpleNN(model, x_decision, x_env, y,
                 g['lr'] = lr_func(epoch)
     if checkpoint is not None:
         model.load_state_dict(checkpoint)
-    return hist
-
-def addColorBar(ax, data, y_grid, main_window):        
-    cbars = main_window.colorbars
-    size_logic = lambda size: size - 2 if isinstance(ax.figure.canvas, cmp.plot.PreviewCanvas) else size
-    
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    max_ygrid = max(y_grid)
-    min_ygrid = min(y_grid)
-    range_ygrid = max_ygrid - min_ygrid
-    num_ticks = 1 if np.isclose(max_ygrid, min_ygrid) else 5
-    tick_difference = range_ygrid / (num_ticks - 1) if num_ticks > 1 else 0
-    ticks = [max_ygrid]
-    for i in range(num_ticks):
-        ticks.append(max_ygrid - i * tick_difference)
-    cbar = ax.get_figure().colorbar(data, cax=cax, ticks=ticks)
-    cbar.ax.tick_params(axis="both", labelsize=size_logic(10))
-    
-    if ax in cbars.keys():
-        cbars[ax].remove()
-    cbars[ax] = cbar
-
-        
-                
-def calcDistance(pnt_A, pnt_B, weights=None):
+    return hist      
+def calcDistance(pnt_A, pnt_B, weights=None) -> float:
     distances = []
     for i in range(len(pnt_A)):
         coord_A = pnt_A[i]
@@ -119,8 +87,7 @@ def calcDistance(pnt_A, pnt_B, weights=None):
         else:
             distances.append(abs(coord_A - coord_B))
     return max(distances)
-
-def findBestPoint(prev_pnt, eval_pnts, weights=None):
+def findBestPoint(prev_pnt, eval_pnts, weights=None) -> Union[np.ndarray, int]:
     # calculating distances
     eval_pnt_distances = []
     for eval_pnt in eval_pnts:
@@ -129,8 +96,7 @@ def findBestPoint(prev_pnt, eval_pnts, weights=None):
             
     pnt_index = eval_pnt_distances.index(min(eval_pnt_distances))
     return eval_pnts[pnt_index], pnt_index
-
-def orderByDistance(prev_pnt, eval_pnts, weights=None):
+def orderByDistance(prev_pnt, eval_pnts, weights=None) -> np.ndarray:
     ordered_pnts = []
 
     if len(eval_pnts[0]) != len(weights):
@@ -142,13 +108,6 @@ def orderByDistance(prev_pnt, eval_pnts, weights=None):
         eval_pnts = np.delete(eval_pnts, best_pnt_index, 0)
     return np.array(ordered_pnts)
 
-###########
-# Classes #
-###########
-
-##############
-# Subclasses #
-##############
 
 class simpleNN(torch.nn.Module):
     def __init__(self, n_decision, n_env,
@@ -172,7 +131,6 @@ class simpleNN(torch.nn.Module):
                                          list_of_nodes[i]), activation]
         self.seq += [torch.nn.Linear(list_of_nodes[-2], list_of_nodes[-1])]
         self.seq = torch.nn.Sequential(*self.seq)
-
     def forward(self, x_decision, x_env=None):
         if self.n_known_env > 0:
             x = torch.cat((x_decision, x_env), 1)
@@ -181,8 +139,7 @@ class simpleNN(torch.nn.Module):
         if self.bounds is not None:
             x = self.normalize(x)
         return self.seq(x)
-
-    def normalize(self, x):
+    def normalize(self, x) -> np.ndarray:
         with torch.no_grad():
             diff = self.bounds[:, 1] - self.bounds[:, 0]
             out = 2*(x.to(torch.float64)-self.bounds[:, 0])/diff - 1.0
@@ -211,7 +168,6 @@ class prior_mean_model_wrapper(torch.nn.Module):
         else:
             self.env = None
         self.kwargs = kwargs
-
     def forward(self, x_decision: Tensor) -> Tensor:
         shape = x_decision.shape
         n_batch = 1
@@ -325,27 +281,24 @@ class interactiveGPBO():
         self.tag = tag
         self.history = []
         self.update_GP(recycleGP=False)
-
-    def normalize(self, x, bounds=None):
+    def normalize(self, x, bounds=None) -> np.ndarray:
         if bounds is None:
             bounds = self.bounds
         diff = bounds[:, 1] - bounds[:, 0]
         out = 2*(x-bounds[:, 0])/diff - 1.0
         return out
-
-    def unnormalize(self, x, bounds=None):
+    def unnormalize(self, x, bounds=None) -> np.ndarray:
         if bounds is None:
             bounds = self.bounds
         bounds = torch.tensor(bounds, dtype=torch.float64)
         diff = bounds[:, 1] - bounds[:, 0]
         out = 0.5*(x.to(torch.float64)+1.)*diff + bounds[:, 0]
         return out.to(torch.float32)
-
     def update_GP(self, x1=None, y1=None, y1var=None,
                   x=None, y=None, yvar=None,  # use x and y, not x1 and y1
                   recycleGP="Auto",
                   noise_constraint=None,
-                  log=True):
+                  log=True) -> None:
 
         if x is None or y is None:
             x = self.x
@@ -416,7 +369,6 @@ class interactiveGPBO():
 
         if log:
             self.write_log(path=self.path, tag=self.tag)
-
     def query_candidates(self, batch_size=None,
                          acquisition_func=None,
                          acquisition_func_args=None,
@@ -424,7 +376,7 @@ class interactiveGPBO():
                          scipy_minimize_options=None,
                          X_pending=None,
                          log=True,
-                         ):
+                         ) -> np.ndarray:
 
         if acquisition_func is None:
             acquisition_func = self.acquisition_func
@@ -458,8 +410,7 @@ class interactiveGPBO():
             self.write_log(path=self.path, tag=self.tag)
 
         return x1
-
-    def write_log(self, path="./log/", tag=""):
+    def write_log(self, path="./log/", tag="") -> None:
         if path[-1] != "/":
             path += "/"
         if not os.path.isdir(path):
@@ -486,8 +437,6 @@ class interactiveGPBO():
         if tag[-1] != "_":
             tag = tag+"_"
         pickle.dump(data, open(path+tag+"history.pickle", "wb"))
-            
-
     def load_from_log(self,
                       fname="",
                       acquisition_func=None,
@@ -499,7 +448,7 @@ class interactiveGPBO():
                       prior_mean_model_env=None,
                       prior_mean_model_kwargs={},
                       path="./log/",
-                      tag=""):
+                      tag="") -> None:
 
         if fname == 'Auto':
             flist = np.sort(os.listdir('./log/'))[::-1]
@@ -597,8 +546,7 @@ class interactiveGPBO():
         self.history = hist
         self.history[-1]['gp'] = self.gp
         self.history[-1]['acquisition'] = self.acquisition_func
-
-    def get_best(self):
+    def get_best(self) -> Union[float, float]:
         ymin = np.inf
         for i in range(len(self.history)):
             if np.min(self.history[i]['y']) < ymin:
@@ -606,8 +554,7 @@ class interactiveGPBO():
                 xmin = self.history[i]['x'][imin]
                 ymin = self.history[i]['y'][imin]
         return xmin, ymin
-
-    def plot_best(self, axes:list=None,ax=None):
+    def plot_best(self, axes:list=None,ax=None) -> List[Axes]:
 
         y_best_hist = [np.min(self.history[-1]['y'][:i+1])
                        for i in range(len(self.history[-1]['y']))]
@@ -622,12 +569,10 @@ class interactiveGPBO():
             ax.set_xlabel("evaluation budget")
             ax.set_ylabel("obj")
         return axes
-
-
     def plot_func_projection(self, func, bounds, x=None, dim_xaxis=0, dim_yaxis=1, 
                              grid_points_each_dim=25, project_minimum=True, 
                              project_mean=False, fixed_values_for_each_dim=None, 
-                             overdrive=False):
+                             overdrive=False) -> None:
         '''
         fixed_values_for_each_dim: dict of key: dimension, val: value to fix for that dimension
         '''
@@ -712,6 +657,5 @@ class interactiveGPBO():
             if x is not None:
                 ax.scatter(x[:, dim_xaxis], x[:, dim_yaxis],
                         c="b", label=tag+" data")
-                
-    def epoch(self):
+    def epoch(self) -> int:
         return len(self.history) - 1
