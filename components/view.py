@@ -27,6 +27,7 @@ class CentralView(QWidget):
         layout.addWidget(self.tabs)
         
 class MainView(QWidget):
+    CODE = 0
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
@@ -53,7 +54,7 @@ class MainView(QWidget):
         # Display
         self.epoch_label = ModularLabel('0')
         self.plot_button = QCheckBox()
-        self.canvas = PreviewCanvas()
+        self.canvas = MainCanvas()
         
         qwidget = QWidget()
         layout = QHBoxLayout()
@@ -86,13 +87,13 @@ class MainView(QWidget):
         control_layout.addWidget(line,
                                  1, 0, 1, 4)
         control_layout.addWidget(self.ucb_button, 
-                             2, 0, 1, 3)
+                                 2, 0, 1, 3)
         control_layout.addWidget(QLabel('Beta:'), 
-                             3, 0, 1, 1, alignment=Qt.AlignRight)
+                                 3, 0, 1, 1, alignment=Qt.AlignRight)
         control_layout.addWidget(self.beta_spinbox, 
-                             3, 1, 1, 3)
-        control_layout.addWidget(self.kg_button, 
-                             4, 0, 1, 3)
+                                 3, 1, 1, 3)
+        # control_layout.addWidget(self.kg_button, 
+        #                          4, 0, 1, 3)
         
         # Data
         self.x_table = XTable()
@@ -193,6 +194,7 @@ class MainView(QWidget):
                 print(widget)
 
 class PlotsView(QWidget):
+    CODE = 1
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
@@ -200,7 +202,7 @@ class PlotsView(QWidget):
         self.setLayout(main_layout)
         
         # Main Area
-        self.canvas = MainCanvas()
+        self.canvas = PlotsCanvas()
 
         # Group Boxes
         acq_groupbox = QGroupBox('Acquisition')
@@ -217,7 +219,7 @@ class PlotsView(QWidget):
         self.acq_fix_button = QRadioButton('Project By Fixing')
         self.acq_x_combobox = MemoryComboBox()
         self.acq_y_combobox = MemoryComboBox()
-        self.acq_fixed_table = Table()
+        self.acq_fixed_table = BaseTable()
             
         acq_xy_qwidget = QWidget()        
         acq_xy_layout = QGridLayout()
@@ -243,7 +245,7 @@ class PlotsView(QWidget):
         self.post_fix_button = QRadioButton('Project By Fixing')
         self.post_x_combobox = MemoryComboBox()
         self.post_y_combobox = MemoryComboBox()
-        self.post_fixed_table = Table()
+        self.post_fixed_table = BaseTable()
         
         post_xy_qwidget = QWidget()
         post_xy_layout = QGridLayout()
@@ -412,8 +414,8 @@ class MenuBar(QMenuBar):
         prior_action.triggered.connect(self.priorRequested.emit)
         row_count_action.triggered.connect(self.rowCountChangeRequested.emit)
 
-        edit_menu = self.addMenu("Edit")
-        edit_menu.addAction(prior_action)
+        # edit_menu = self.addMenu("Edit")
+        # edit_menu.addAction(prior_action)
         # edit_menu.addAction(row_count_action)
         
         # view menu
@@ -471,7 +473,7 @@ class CustomFunctionWindow(QDialog):
     """
     Window for creating a custom function.
     """
-    gotCustomFunction = pyqtSignal()  # cannot emit a function
+    gotCustomFunction = pyqtSignal(str)  # cannot emit a function, but can emit a string
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
@@ -512,7 +514,9 @@ class CustomFunctionWindow(QDialog):
         self.setLayout(layout)
     def _done(self):
         self.hide()
-        self.gotCustomFunction.emit()
+        func_str = self.text_edit.toPlainText()
+        func_str = "def function(X):\n\t" + func_str.replace('\n', '\n\t')
+        self.gotCustomFunction.emit(func_str)
     
 
 class TableContextMenu(QMenu):

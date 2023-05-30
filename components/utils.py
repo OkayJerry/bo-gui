@@ -19,11 +19,9 @@ class DoubleDelegate(QItemDelegate):
         line_edit.setAlignment(Qt.AlignCenter)
         line_edit.setValidator(EmptyStringDoubleValidator())
         return line_edit
-    
     def setEditorData(self, editor, index):
         value = index.data(Qt.EditRole)
         editor.setText(value)
-
     def setModelData(self, editor, model, index):
         text = editor.text()
         model.setData(index, text, Qt.EditRole)
@@ -95,31 +93,27 @@ class BaseCellContextMenu(QMenu):
         """Inserts a row to the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().insertRow(self.parent().rowCount() if model_index.row() == -1 else model_index.row())
-        self.parent().rowInserted.emit(model_index.row())
+        self.parent().dimensionsChanged.emit(0, model_index.row())
     def insert_column(self, pos: QPoint):
         """Inserts a column to the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().insertColumn(model_index.column())
-        self.parent().columnInserted.emit(model_index.column())
+        self.parent().dimensionsChanged.emit(2, model_index.column())
     def remove_row(self, pos: QPoint):
         """Removes a row from the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().removeRow(model_index.column())
-        self.parent().rowRemoved.emit(model_index.column())
+        self.parent().dimensionsChanged.emit(1, model_index.column())
     def remove_column(self, pos: QPoint):
         """Removes a column from the parent `QTableWidget` at `pos`."""
         model_index = self.parent().indexAt(pos)
         self.parent().removeColumn(model_index.column())
         self.parent().horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.parent().columnRemoved.emit(model_index.column())
+        self.parent().dimensionsChanged.emit(3, model_index.column())
 
 
 class BaseTable(QTableWidget):
-    bottomRowAdded = pyqtSignal(int)
-    rowInserted = pyqtSignal(int)
-    rowRemoved = pyqtSignal(int)
-    columnInserted = pyqtSignal(int)
-    columnRemoved = pyqtSignal(int)
+    dimensionsChanged = pyqtSignal(int, int)  # Row Added = 0, Row Removed = 1, Column Added = 2, Column Removed = 3
     headerChanged = pyqtSignal(int, str)
     
     def __init__(self, *args, **kwargs):
@@ -426,7 +420,7 @@ class XTable(BaseTable):
             self.insert_column_action.triggered.connect(lambda: self.insert_column(pos))
             self.remove_row_action.triggered.connect(lambda: self.remove_row(pos))
             self.remove_column_action.triggered.connect(lambda: self.remove_column(pos))
-            self.clear_contents_action.triggered.connect(lambda: self.clear_contents)
+            self.clear_contents_action.triggered.connect(self.clear_contents)
             
             self.addAction(self.cut_action)
             self.addAction(self.copy_action)
@@ -436,6 +430,7 @@ class XTable(BaseTable):
             self.addAction(self.insert_column_action)
             self.addAction(self.remove_row_action)
             self.addAction(self.remove_column_action)
+            self.addSeparator()
             self.addAction(self.clear_contents_action)
     
         
@@ -449,7 +444,7 @@ class YTable(BaseTable):
         self.horizontalHeader().customContextMenuRequested.connect(self.onHeaderContextMenuRequest)
         
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect()
+        self.customContextMenuRequested.connect(self.onCellContextMenuRequest)
         
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
     def onHeaderContextMenuRequest(self, pos: QPoint) -> None:
@@ -499,6 +494,7 @@ class YTable(BaseTable):
             self.addSeparator()
             self.addAction(self.insert_row_action)
             self.addAction(self.remove_row_action)
+            self.addSeparator()
             self.addAction(self.clear_contents_action)
 
     
@@ -509,10 +505,10 @@ class BoundryTable(BaseTable):
         
         self.horizontalHeader().setMinimumSectionSize(MINIMUM_COLUMN_SIZE)
         self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
-        self.horizontalHeader().customContextMenuRequested.connect()
+        self.horizontalHeader().customContextMenuRequested.connect(self.onHeaderContextMenuRequest)
         
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect()
+        self.customContextMenuRequested.connect(self.onCellContextMenuRequest)
     
         total_row_height = self.rowHeight(0) * 2
         header_height = self.horizontalHeader().height()
@@ -524,7 +520,7 @@ class BoundryTable(BaseTable):
         self.setMinimumHeight(height)
         
         self.setVerticalHeaderLabels(['min', 'max'])
-    def to_list(self) -> List[Tuple[np.float64]]:
+    def to_list(self) -> List[Tuple[float]]:
         """
         Converts the items of a table into an array with a shape
         eligible to be the GPBO's bounds.
@@ -542,10 +538,16 @@ class BoundryTable(BaseTable):
                 item = self.item(j, i)
                 if not item or item.text() == '':
                     continue
-                val = np.float64(item.text())
+                val = float(item.text())
                 pair.append(val)
+            
+            if len(pair) < 2:
+                raise ValueError("Boundary incomplete.")
+            elif pair[0] > pair[1]:
+                raise ValueError("Boundary minimum must be less than its corresponding maximum.")
             bounds.append(tuple(pair))
-        return bounds  
+            
+        return bounds
     def onHeaderContextMenuRequest(self, pos: QPoint) -> None:
         column = self.horizontalHeader().logicalIndexAt(pos)
         context_menu = self.HeaderContextMenu(column, parent=self)
@@ -585,7 +587,7 @@ class BoundryTable(BaseTable):
             self.paste_action.triggered.connect(self.paste)
             self.insert_column_action.triggered.connect(lambda: self.insert_column(pos))
             self.remove_column_action.triggered.connect(lambda: self.remove_column(pos))
-            self.clear_contents_action.triggered.connect(lambda: self.clear_contents)
+            self.clear_contents_action.triggered.connect(self.clear_contents)
             
             self.addAction(self.cut_action)
             self.addAction(self.copy_action)
@@ -593,6 +595,7 @@ class BoundryTable(BaseTable):
             self.addSeparator()
             self.addAction(self.insert_column_action)
             self.addAction(self.remove_column_action)
+            self.addSeparator()
             self.addAction(self.clear_contents_action)
 
 
@@ -601,7 +604,6 @@ class CandidateTable(BaseTable):
     allToDecisionRequested = pyqtSignal()
     selectedToPendingRequested = pyqtSignal()
     allToPendingRequested = pyqtSignal()
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         MINIMUM_COLUMN_SIZE = 50
@@ -609,7 +611,7 @@ class CandidateTable(BaseTable):
         self.horizontalHeader().setMinimumSectionSize(MINIMUM_COLUMN_SIZE)
         
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect()
+        self.customContextMenuRequested.connect(self.onCellContextMenuRequest)
         
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -630,10 +632,10 @@ class CandidateTable(BaseTable):
             self.selected_to_pending = QAction("To Pending")
             self.copy_action = QAction("Copy", self)
             
-            self.all_to_decision.triggered.connect(self.allToDecisionRequested.emit)
-            self.all_to_pending.triggered.connect(self.allToPendingRequested.emit)
-            self.selected_to_decision.triggered.connect(self.selectedToDecisionRequested.emit)
-            self.selected_to_pending.triggered.connect(self.selectedToPendingRequested.emit)
+            self.all_to_decision.triggered.connect(self.parent().allToDecisionRequested.emit)
+            self.all_to_pending.triggered.connect(self.parent().allToPendingRequested.emit)
+            self.selected_to_decision.triggered.connect(self.parent().selectedToDecisionRequested.emit)
+            self.selected_to_pending.triggered.connect(self.parent().selectedToPendingRequested.emit)
             self.copy_action.triggered.connect(self.copy)
 
             self.move_all_menu.addAction(self.all_to_decision)
@@ -673,7 +675,7 @@ class PendingTable(BaseTable):
             self.paste_action.triggered.connect(self.paste)
             self.insert_row_action.triggered.connect(lambda: self.insert_row(pos))
             self.remove_row_action.triggered.connect(lambda: self.remove_row(pos))
-            self.clear_contents_action.triggered.connect(lambda: self.clear_contents)
+            self.clear_contents_action.triggered.connect(self.clear_contents)
             
             self.addAction(self.cut_action)
             self.addAction(self.copy_action)
@@ -681,6 +683,7 @@ class PendingTable(BaseTable):
             self.addSeparator()
             self.addAction(self.insert_row_action)
             self.addAction(self.remove_row_action)
+            self.addSeparator()
             self.addAction(self.clear_contents_action)
 
 
@@ -694,15 +697,12 @@ class MemoryComboBox(QComboBox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._previous: int = None
-        
     def clear(self):
         super().clear()
         
         self._previous: int = None
-        
     def setPreviousIndex(self, index: int):
-        self._previous = index
-        
+        self._previous = index 
     def previousIndex(self) -> int:
         return self._previous
 
@@ -711,7 +711,6 @@ class Tabs(QTabWidget):
     tabEnabled = pyqtSignal(int, bool)
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        
     def setTabEnabled(self, index: int, a1: bool) -> None:
         self.tabEnabled.emit(index, a1)
         super().setTabEnabled(index, a1)
@@ -741,25 +740,20 @@ class ProgressButton(QWidget):
         self.setContentsMargins(0, 0, 0, 0)
         self.setMaximumHeight(25)
         self.setLayout(layout)
-        
     def enableProgressBar(self):
         self.layout().setCurrentIndex(self._PROGRESS_BAR) 
         print("$$")
         self.progressBarEnabled.emit(True)
         print("##")
-        
     def disableProgressBar(self):
         self.layout().setCurrentIndex(self._BUTTON)
         self.progressBarEnabled.emit(False)
-        
     def _checkProgressBar(self, value: int):
         if value >= self._progress_bar.maximum():
             self.reset()
-
     def reset(self) -> None:
         self.disableProgressBar()
         self._progress_bar.reset()
-
     def updateValue(self, value: int) -> None:
         self._progress_bar.setValue(self._progress_bar.value() + value)
 

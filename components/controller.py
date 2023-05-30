@@ -1,8 +1,8 @@
 import json
 import pickle
 import threading
-from importlib import import_module
 from typing import Dict, List, Tuple, Union
+import traceback
 
 import numpy as np
 from botorch.acquisition.knowledge_gradient import qKnowledgeGradient
@@ -19,6 +19,13 @@ from components.view import *
 DTYPE = np.float64
 
 class Controller(QMainWindow):
+    startup = pyqtSignal()
+    updatedGPBO = pyqtSignal(int)
+    plotStarted = pyqtSignal()
+    plotFinished = pyqtSignal(int)
+    queryStarted = pyqtSignal()
+    queryFinished = pyqtSignal(list)
+    
     def __init__(self, app, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
@@ -26,7 +33,7 @@ class Controller(QMainWindow):
         ICON: str = "images/frib.png"
         WIDTH: int = 640
         HEIGHT: int = 480
-        
+                
         self.setWindowTitle(TITLE)
         self.setWindowIcon(QIcon(ICON))
         self.resize(WIDTH, HEIGHT)
@@ -84,12 +91,10 @@ class Controller(QMainWindow):
         self.GPBO = None
         self.prior_mean_model = None
 
-        if hasattr(self, "colorbars"):
-            for cbar in self.colorbars.values():
+        for canvas in [self.main.canvas, self.plots.canvas]:
+            for cbar in canvas.colorbars.values():
                 cbar.remove()
-            self.colorbars.clear()
-        else:
-            self.colorbars = {}
+            canvas.colorbars.clear()
             
         self.centralWidget().tabs.setCurrentIndex(0)  # `0` = "Main"
         self.centralWidget().tabs.setTabEnabled(1, False)  # `1` = "Plots"
@@ -139,28 +144,18 @@ class Controller(QMainWindow):
         self.main.canvas.draw_idle()
 
         self.main.blockWidgetSignals(False)
+        
+        # Plots Page
+        self.plots.blockWidgetSignals(True)
+        
+        self.plots.acq_min_button.setChecked(True)
+        self.plots.post_min_button.setChecked(True)
+        
+        self.plots.blockWidgetSignals(True)
     def set_connections(self) -> None:
         
         # LOGIC
-        def data_table_cell_change(table: Union[XTable, YTable], row: int):
-            pass
-        def showBaseContextMenu(table: Table, pos: QPoint) -> None:
-            menu = TableContextMenu(parent=table)
-            menu.popup(table.viewport().mapToGlobal(pos))
-        def showStandardContextMenu(table: Union[XTable, YTable], pos: QPoint):
-            menu = StandardTableContextMenu(pos, parent=table)
-            if self.centralWidget().tabs.isTabEnabled(1):
-                menu.insert_column_action.setVisible(False)
-                menu.remove_column_action.setVisible(False)
-            menu.popup(table.viewport().mapToGlobal(pos))
-        def showHeaderContextMenu(table: Union[XTable, YTable], pos: QPoint):
-            column: int = table.horizontalHeader().logicalIndexAt(pos)
-            menu = HeaderContextMenu(column, parent=table)
-            menu.popup(table.horizontalHeader().viewport().mapToGlobal(pos))
-        def showQueryContextMenu(table: CandidatePendingTableContextMenu, pos: QPoint):
-            menu = CandidatePendingTableContextMenu(pos, parent=table)
-            menu.popup(table.viewport().mapToGlobal(pos))
-        def movePoints(src: Table, dest: Table, selected: bool = False):
+        def movePoints(src: BaseTable, dest: BaseTable, selected: bool = False):
             src.blockSignals(True)
             dest.blockSignals(True)
 
@@ -181,43 +176,27 @@ class Controller(QMainWindow):
             # Allow the signal to operate again
             dest.blockSignals(False)
             src.blockSignals(False)
-        def updateGP():
-            try:
-                if not self.GPBO:
-                    self.GPBO = SuperGPBO(self)
-                    self.main.query_candidates_button.setEnabled(True)
-                    self.main.batch_spin_box.setEnabled(True)
-                    self.main.candidate_pnt_table.setEnabled(True)
-                    self.main.pending_pnt_table.setEnabled(True)
-                self.GPBO.update()
-                print(f"Actual: {self.prior_mean_model}")
-                print(f"GPBO: {self.GPBO.prior_mean_model}")
-                
-                if self.main.epoch_label.text() == 1:
-                    self.centralWidget().tabs.setTabEnabled(1, True)
-                
-                self.main.candidate_pnt_table.setRowCount(0)
-                self.main.pending_pnt_table.setRowCount(0)
-                
-            except Exception as exc:
-                print(exc)
-                QMessageBox.critical(self, "CRITICAL", str(exc), QMessageBox.Ok)
-        def applyObjFuncToY():
+        def onGotObjectiveFunction(func_str: str):
+            r"""
+            `function` is a string-version of the code within the function.
+            
+            An example function might be...
+            ```
+            def objective_function(X):
+                return X
+            ```
+            ...which as a string is "def objective_function(X):\n\treturn X".
+            """
             self.main.y_table.blockSignals(True)
 
             glbs = {}
             lcls = {}
 
-            # Format string as a pseudo-function
-            func_str = self.main.obj_func_win.text_edit.toPlainText()
-            func_str = "def function(X):\n\t" + func_str.replace('\n', '\n\t')
-            
             try:
                 exec(func_str, glbs, lcls)
                 custom_function = list(lcls.values())[0]
 
                 # Get decision parameters (account for extra row)
-                list1D_any_none = lambda list1D: any(x is None for x in list1D)
                 x = self.main.x_table.to_list()
 
                 # Verify that all elements are complete
@@ -299,17 +278,17 @@ class Controller(QMainWindow):
                 for i in range(len(candidate_pnts)):
                     print(f"\t\tAdd Query {i}")
                     self.plots.query_combobox.addItem(f"{i + 1}")
-        def on_new_file():
+        def onNewFileRequest():
             self.set_initial_states()
-        def on_open_file():
+        def onOpenFileRequest():
             while True:
-                filename = QFileDialog.getOpenFileName(self, 'Open File', filter="All Files (*.*);;JSON File (*.json);;PICKLE File (*.pickle)")[0]  # previously tuple
+                filename = QFileDialog.getOpenFileName(self, 'Open File', filter="All Files (*.*);;JSON File (*.json)")[0]  # previously tuple
                 if filename:
                     _, extension = os.path.splitext(filename)
-                    if extension != ".pickle" and extension != ".json":
+                    if extension != ".json":
                         warning = QMessageBox()
                         warning.setIcon(QMessageBox.Critical)
-                        warning.setText("Didn't select a *.pickle or *.json file")
+                        warning.setText("Didn't select a *.json file")
                         warning.setWindowTitle("ERROR")
                         warning.setStandardButtons(QMessageBox.Ok)
 
@@ -323,10 +302,8 @@ class Controller(QMainWindow):
             
             self.set_initial_states()
 
-            self.GPBO = SuperGPBO(self, filename=filename)
-            
-            num_dimensions = self.GPBO.dim
-            
+            self.GPBO = interactiveGPBO(self, load_log_fname=filename)
+                        
             # Fill arrays using X and Y data
             self.main.x_table.fill(self.GPBO.x)
             self.main.y_table.fill(self.GPBO.y)
@@ -341,7 +318,7 @@ class Controller(QMainWindow):
         
             
             # Reset initialization table labels
-            x_labels = [f'x[{i}]' for i in range(num_dimensions)]
+            x_labels = [f'x[{i}]' for i in range(self.GPBO.dim)]
             self.main.x_table.setHorizontalHeaderLabels(x_labels)
             self.main.y_table.setHorizontalHeaderLabels(['y'])
             
@@ -371,24 +348,11 @@ class Controller(QMainWindow):
             for tbl in [self.main.x_table, self.main.y_table, self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]:
                 tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
-
-            if self.main.plot_button.isChecked():
-                def plot():
-                    self.GPBO.plot(preview=True)
-                    self.centralWidget().tabs.setTabEnabled(1, True)
-                    
-                thread = threading.Thread(target=plot)
-                thread.start()
-            else:
-                self.main.query_candidates_button.setEnabled(True)
-
-            self.main.batch_spin_box.setEnabled(True)
-            self.main.candidate_pnt_table.setEnabled(True)
-            self.main.pending_pnt_table.setEnabled(True)
-        def on_plot_refresh():
-            if self.GPBO:
-                self.GPBO.refresh_plots()
-        def on_save_as():
+            self.updatedGPBO.emit(self.GPBO.epoch())
+        def onPlotRefreshRequest():
+            self.main.canvas.reload()
+            self.plots.canvas.reload()
+        def onSaveFileAsRequest():
             GPBO = self.GPBO
             if not GPBO:
                 return
@@ -423,7 +387,7 @@ class Controller(QMainWindow):
             elif tag.endswith(".json"):
                 with open(path + tag, "w") as file:
                     json.dump(data, file)
-        def on_open_preferences():
+        def onOpenPreferencesRequest():
             self.menu_bar.pref_win.show()
         def app_font_size_change(size: int):
             self.preferences.setValue("App Font Size", size)
@@ -436,130 +400,51 @@ class Controller(QMainWindow):
                 return
             QMessageBox.critical(self.menu_bar.pref_win, "ERROR", "Invalid file path.", QMessageBox.Ok)
             line_edit.setText(line_edit.previous)
-        def table_column_inserted(table: XTable, column: int) -> None:
-            # Automatically format default header items
-            for i, label in enumerate(table.get_horizontal_labels()):
-                if not label or label[:2] + label[-1] == "x[]":
-                    item = QTableWidgetItem(f"x[{i}]")
-                    table.setHorizontalHeaderItem(i, item)
+        def onTableDimensionsChanged(table: QTableWidget, command_code: int, index: int):
+            ROW_INSERTED, ROW_REMOVED = 0, 1
+            COLUMN_INSERTED, COLUMN_REMOVED = 2, 3
+            TABLES = [self.main.x_table, self.main.y_table, self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
 
-            labels = table.get_horizontal_labels()
-            tables = [self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
-            for tbl in tables:
-                tbl.insertColumn(column)
-                tbl.setHorizontalHeaderLabels(labels)
-                tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        def table_column_removed(table: XTable, column: int) -> None:
-            # Automatically format default header items
-            for i, label in enumerate(table.get_horizontal_labels()):
-                if not label or label[:2] + label[-1] == "x[]":
-                    item = QTableWidgetItem(f"x[{i}]")
-                    table.setHorizontalHeaderItem(i, item)
-                    
-            labels = table.get_horizontal_labels()
-            tables = [self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
-            for tbl in tables:
-                tbl.removeColumn(column)
-                tbl.setHorizontalHeaderLabels(labels)
-                tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        def table_row_inserted(table: Union[XTable, YTable], row: int) -> None:
-            if isinstance(table, XTable):
-                self.main.y_table.insertRow(row)
-            elif isinstance(table, YTable):
-                self.main.x_table.insertRow(row)
-        def table_row_removed(table: Union[XTable, YTable], row: int) -> None:
-            if isinstance(table, XTable):
-                self.main.y_table.removeRow(row)
-            elif isinstance(table, YTable):
-                self.main.x_table.removeRow(row)
-        def verify_cell_exists(table: Union[XTable, YTable, BoundryTable]) -> None:
-            print(table.currentItem())
-            if not table.currentItem() or not isinstance(table.currentItem(), CenteredTableItem):
-                table.setItem(table.currentRow(), table.currentColumn(), CenteredTableItem())
-        def on_tab_enabled(tab: int, b: bool) -> None:
-        
-            MAIN = 0
-            PLOTS = 1
-            
-            if tab == PLOTS and b is True:
-                self.plots.blockWidgetSignals(True)
+            if command_code == ROW_INSERTED:
+                if isinstance(table, XTable):
+                    self.main.y_table.insertRow(index)
+                elif isinstance(table, YTable):
+                    self.main.x_table.insertRow(index)
+            elif command_code == ROW_REMOVED:
+                if isinstance(table, XTable):
+                    self.main.y_table.removeRow(index)
+                elif isinstance(table, YTable):
+                    self.main.x_table.removeRow(index)
+            elif command_code == COLUMN_INSERTED:
+                # Automatically format default header items
+                for i, label in enumerate(table.get_horizontal_labels()):
+                    if not label or label[:2] + label[-1] == "x[]":
+                        item = QTableWidgetItem(f"x[{i}]")
+                        table.setHorizontalHeaderItem(i, item)
 
-                FIXED_HEADER = ["Fixed Value"]
-                DECISION_HEADER = self.main.x_table.get_horizontal_labels()
-                FIXED_VAL = 0.0
-                NUM_DIMENSIONS = len(DECISION_HEADER)
-
-                self.plots.blockWidgetSignals(True)
-
-                self.plots.epoch_spinbox.setValue(1)
-                self.plots.epoch_spinbox.setMinimum(1)
-                self.plots.epoch_spinbox.setMaximum(1)
-                self.plots.acq_min_button.setChecked(True)
-                self.plots.post_min_button.setChecked(True)
-
-                self.plots.acq_x_combobox.clear()
-                self.plots.acq_x_combobox.addItems(DECISION_HEADER)
-                self.plots.acq_x_combobox.setCurrentIndex(0)
-                self.plots.acq_x_combobox.setPreviousIndex(0)
-                
-                self.plots.acq_y_combobox.clear()
-                self.plots.acq_y_combobox.addItems(DECISION_HEADER)
-                self.plots.acq_y_combobox.setCurrentIndex(1)
-                self.plots.acq_y_combobox.setPreviousIndex(1)
-
-                self.plots.post_x_combobox.clear()
-                self.plots.post_x_combobox.addItems(DECISION_HEADER)
-                self.plots.post_x_combobox.setCurrentIndex(0)
-                self.plots.post_x_combobox.setPreviousIndex(0)
-                
-                self.plots.post_y_combobox.clear()
-                self.plots.post_y_combobox.addItems(DECISION_HEADER)
-                self.plots.post_y_combobox.setCurrentIndex(1)
-                self.plots.post_y_combobox.setPreviousIndex(1)
-
-                fix_tbls = [self.plots.acq_fixed_table, self.plots.post_fixed_table]
-                for tbl in fix_tbls:
-                    tbl.clear()
-                    tbl.setColumnCount(1)
-                    tbl.setRowCount(NUM_DIMENSIONS)
-                    tbl.setHorizontalHeaderLabels(FIXED_HEADER)
-                    tbl.setVerticalHeaderLabels(DECISION_HEADER)
-                    tbl.setEnabled(False)
-                    for i in range(NUM_DIMENSIONS):
-                        item = CenteredTableItem(str(FIXED_VAL))
-                        tbl.setItem(i, 0, item)
-                        if i < 2:
-                            tbl.setRowHidden(i, True)
-
-                self.plots.query_combobox.clear()
-                self.plots.query_combobox.addItem("All")
-
-                self.plots.blockWidgetSignals(False)
-        def queryGP():
-            if self.GPBO:
-                self.main.query_candidates_button.setEnabled(False)
-                self.main.update_gp_button.setEnabled(False)
-                self.GPBO.query()
-        def on_epoch_change(epoch: int):
-            print(f"Epoch Changed To... {epoch}")
-            self.plots.epoch_spinbox.setMaximum(epoch)
-            if not self.centralWidget().tabs.isTabEnabled(1):
-                self.centralWidget().tabs.setTabEnabled(1, True)
-        def on_progress_bar_enable(b: bool):
-            if b is True:
-                self.main.query_candidates_button.setEnabled(False)
-            elif b is False:
-                self.main.query_candidates_button.setEnabled(True)
-        def got_prior():
+                labels = table.get_horizontal_labels()
+                for tbl in TABLES:
+                    if tbl is not table and tbl is not self.main.y_table:
+                        tbl.insertColumn(index)
+                        tbl.setHorizontalHeaderLabels(labels)
+                        tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            elif command_code == COLUMN_REMOVED:
+                # Automatically format default header items
+                for i, label in enumerate(table.get_horizontal_labels()):
+                    if not label or label[:2] + label[-1] == "x[]":
+                        item = QTableWidgetItem(f"x[{i}]")
+                        table.setHorizontalHeaderItem(i, item)
+                        
+                labels = table.get_horizontal_labels()
+                for tbl in TABLES:
+                    if tbl is not table and tbl is not self.main.y_table:
+                        tbl.removeColumn(index)
+                        tbl.setHorizontalHeaderLabels(labels)
+                        tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        def onGotPriorFunction(func_str: str):
             glbs = {}
             lcls = {}
 
-            # Format string as a pseudo-function
-            func_str = self.menu_bar.prior_win.text_edit.toPlainText()
-            func_str = "def function(X):\n\t" + func_str.replace('\n', '\n\t')
-            print(func_str)
-            
-            # if not self.GPBO:
             try:
                 exec(func_str, glbs, lcls)
                 custom_function = list(lcls.values())[0]
@@ -597,7 +482,10 @@ class Controller(QMainWindow):
             
 
                 if self.GPBO:
-                    self.GPBO.prior_mean_model = prior_mean_model_wrapper(custom_function, decision_transformer=self.GPBO.unnormalize)
+                    prior = prior_mean_model_wrapper(custom_function, decision_transformer=self.GPBO.unnormalize)
+                    for param in prior.parameters():
+                        param.requires_grad = False
+                    self.GPBO.prior_mean_model = prior
                 else:
                     self.prior_mean_model = custom_function
                 
@@ -653,44 +541,197 @@ class Controller(QMainWindow):
             self.main.boundry_table.horizontalScrollBar().setValue(value)
             self.main.candidate_pnt_table.horizontalScrollBar().setValue(value)
             self.main.pending_pnt_table.horizontalScrollBar().setValue(value)
+        def onUpdatedGPBO(epoch: int):
+            print(f"Current Epoch: {epoch}")
             
+            self.plot(self.main)
+            
+            self.main.epoch_label.setText(str(self.GPBO.epoch()))
+            self.plots.epoch_spinbox.setMaximum(epoch)
+            self.main.batch_spin_box.setEnabled(True)
+            
+            if not self.centralWidget().tabs.isTabEnabled(1):
+                self.startup.emit()
+        def onPlotStarted():
+            self.main.progress_button.enableProgressBar()
+            self.plots.progress_button.enableProgressBar()
+        def onPlotFinished(canvas_code: int):
+            if canvas_code == self.main.CODE:
+                canvas = self.main.canvas
+                epoch = self.GPBO.epoch()
+                
+                # AXES VISIBILITY
+                if self.main.plot_button.isChecked():
+                    if epoch < 2:
+                        canvas.acquisition_ax.set_visible(True)
+                        canvas.posterior_ax.set_visible(True)
+                        canvas.obj_history_ax.set_visible(False)
+                        canvas._get_obj_twinx().set_visible(False)
+                    else:
+                        canvas.acquisition_ax.set_visible(True)
+                        canvas.posterior_ax.set_visible(True)
+                        canvas.obj_history_ax.set_visible(True)
+                        canvas._get_obj_twinx().set_visible(True)
+                else:
+                    if epoch > 1:
+                        canvas.acquisition_ax.set_visible(False)
+                        canvas.posterior_ax.set_visible(False)
+                        canvas.obj_history_ax.set_visible(True)
+                        canvas._get_obj_twinx().set_visible(True)
+                    else:
+                        canvas.acquisition_ax.set_visible(False)
+                        canvas.posterior_ax.set_visible(False)
+                        canvas.obj_history_ax.set_visible(False)
+                        canvas._get_obj_twinx().set_visible(False)
+                        
+            elif canvas_code == self.plots.CODE:
+                canvas = self.plots.canvas
+                epoch = self.plots.epoch_spinbox.value()
+                
+                # AXES VISIBLITY
+                if self.main.plot_button.isChecked():
+                    if epoch < 2 and self.main.plot_button.isEnabled():
+                        canvas.acquisition_ax.set_visible(True)
+                        canvas.posterior_ax.set_visible(True)
+                        canvas.obj_history_ax.set_visible(False)
+                        canvas._get_obj_twinx().set_visible(False)
+                    elif self.plots.plot_button.isEnabled() and epoch > 0:
+                        # Show all canvas axes
+                        for ax in canvas.get_axes():
+                            if not ax.get_visible():
+                                ax.set_visible(True)
+                    elif epoch > 1:
+                        # Hide select canvas axes
+                        canvas.acquisition_ax.set_visible(False)
+                        canvas.posterior_ax.set_visible(False)
+            else:
+                raise ValueError(f"{canvas_code} is an invalid canvas code.")
+                    
+            # LABELS
+            DECISION_HEADER = self.main.x_table.get_horizontal_labels()
+            acq_labels = (self.plots.acq_x_combobox.currentText(), self.plots.acq_y_combobox.currentText()) if self.GPBO.epoch() > 1 else (DECISION_HEADER[0], DECISION_HEADER[1])
+            post_labels = (self.plots.post_x_combobox.currentText(), self.plots.post_y_combobox.currentText()) if self.GPBO.epoch() > 1 else (DECISION_HEADER[0], DECISION_HEADER[1])
+            
+            canvas.format(acq_labels, post_labels)
+            canvas.reload()
+            
+            self.main.query_candidates_button.setEnabled(True)
+        def onQueryStarted():
+            self.main.update_gp_button.setEnabled(False)
+            self.main.query_candidates_button.setEnabled(False)
+        def onQueryFinished(candidates: List[List[float]]):
+            
+            self.main.candidate_pnt_table.setRowCount(0)  # pseudo-clear
+            self.main.candidate_pnt_table.setRowCount(len(candidates))
+            self.main.candidate_pnt_table.fill(candidates)
+            
+            if self.plots.epoch_spinbox.value() == self.GPBO.epoch():
+                candidate_pnts = self.GPBO.history[self.GPBO.epoch()]['x1']
+
+                for i in range(1, self.plots.query_combobox.count()):
+                    self.plots.query_combobox.removeItem(1)
+                
+                for i in range(len(candidate_pnts)):
+                    self.plots.query_combobox.addItem(f'{i+1}')
+            
+            self.main.update_gp_button.setEnabled(True)
+            self.main.query_candidates_button.setEnabled(True)
+            
+            if self.main.plot_button.isChecked():
+                self.plot(self.main)
+        def onUpdateGPRequest():
+            try:
+                self.update_GP()
+            except Exception as exc:
+                traceback.print_exc()
+                QMessageBox.critical(self, "CRITICAL", str(exc))
+        def onStartup():
+            self.main.candidate_pnt_table.setEnabled(True)
+            self.main.pending_pnt_table.setEnabled(True)
+            
+            # Migrating into "Plots" tab
+            FIXED_HEADER = ["Fixed Value"]
+            DECISION_HEADER = self.main.x_table.get_horizontal_labels()
+            FIXED_VAL = 0.0
+            NUM_DIMENSIONS = len(DECISION_HEADER)
+
+            self.plots.blockWidgetSignals(True)
+
+            self.plots.epoch_spinbox.setValue(1)
+            self.plots.epoch_spinbox.setMinimum(1)
+            self.plots.epoch_spinbox.setMaximum(1)
+            self.plots.acq_min_button.setChecked(True)
+            self.plots.post_min_button.setChecked(True)
+
+            self.plots.acq_x_combobox.clear()
+            self.plots.acq_x_combobox.addItems(DECISION_HEADER)
+            self.plots.acq_x_combobox.setCurrentIndex(0)
+            self.plots.acq_x_combobox.setPreviousIndex(0)
+            
+            self.plots.acq_y_combobox.clear()
+            self.plots.acq_y_combobox.addItems(DECISION_HEADER)
+            self.plots.acq_y_combobox.setCurrentIndex(1)
+            self.plots.acq_y_combobox.setPreviousIndex(1)
+
+            self.plots.post_x_combobox.clear()
+            self.plots.post_x_combobox.addItems(DECISION_HEADER)
+            self.plots.post_x_combobox.setCurrentIndex(0)
+            self.plots.post_x_combobox.setPreviousIndex(0)
+            
+            self.plots.post_y_combobox.clear()
+            self.plots.post_y_combobox.addItems(DECISION_HEADER)
+            self.plots.post_y_combobox.setCurrentIndex(1)
+            self.plots.post_y_combobox.setPreviousIndex(1)
+
+            for tbl in [self.plots.acq_fixed_table, self.plots.post_fixed_table]:
+                tbl.clear()
+                tbl.setColumnCount(1)
+                tbl.setRowCount(NUM_DIMENSIONS)
+                tbl.setHorizontalHeaderLabels(FIXED_HEADER)
+                tbl.setVerticalHeaderLabels(DECISION_HEADER)
+                tbl.setEnabled(False)
+                for i in range(NUM_DIMENSIONS):
+                    item = CenteredTableItem(str(FIXED_VAL))
+                    tbl.setItem(i, 0, item)
+                    if i < 2:
+                        tbl.setRowHidden(i, True)
+
+            self.plots.query_combobox.clear()
+            self.plots.query_combobox.addItem("All")
+
+            self.plots.blockWidgetSignals(False)
+            
+            self.centralWidget().tabs.setTabEnabled(self.plots.CODE, True)
+        
+        
         # CONNECTIONS
-        self.main.x_table.cellChanged.connect(lambda row, col: data_table_cell_change(self.main.x_table, row))
-        self.main.y_table.cellChanged.connect(lambda row, col: data_table_cell_change(self.main.y_table, row))
+        self.startup.connect(onStartup)
+        self.updatedGPBO.connect(onUpdatedGPBO)
+        self.plotStarted.connect(onPlotStarted)
+        self.plotFinished.connect(onPlotFinished)
+        self.queryStarted.connect(onQueryStarted)
+        self.queryFinished.connect(onQueryFinished)
+        
+        self.main.update_gp_button.clicked.connect(onUpdateGPRequest)
+        self.main.query_candidates_button.clicked.connect(self.query)
+        self.plots.update_proj_button.clicked.connect(lambda: self.plot(self.plots))
+        
+        self.menu_bar.newFile.connect(onNewFileRequest)
+        self.menu_bar.openFile.connect(onOpenFileRequest)
+        self.menu_bar.refreshPlots.connect(onPlotRefreshRequest)
+        self.menu_bar.saveAsFile.connect(onSaveFileAsRequest)
+        self.menu_bar.preferences.connect(onOpenPreferencesRequest)
+        
         self.main.x_table.headerChanged.connect(onHeaderChange)
 
-        self.main.x_table.itemSelectionChanged.connect(lambda: verify_cell_exists(self.main.x_table))
-        self.main.y_table.itemSelectionChanged.connect(lambda: verify_cell_exists(self.main.y_table))
-        self.main.boundry_table.itemSelectionChanged.connect(lambda: verify_cell_exists(self.main.boundry_table))
-        self.main.pending_pnt_table.itemSelectionChanged.connect(lambda: verify_cell_exists(self.main.pending_pnt_table))
-        self.main.pending_pnt_table.currentItemChanged.connect(lambda: verify_cell_exists(self.main.pending_pnt_table))
+        self.main.x_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.x_table, code, index))
+        self.main.y_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.y_table, code, index))
+        self.main.boundry_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.boundry_table, code, index))
 
-        self.main.x_table.rowInserted.connect(lambda row: table_row_inserted(self.main.x_table, row))
-        self.main.x_table.columnInserted.connect(lambda col: table_column_inserted(self.main.x_table, col))
-        self.main.x_table.rowRemoved.connect(lambda row: table_row_removed(self.main.x_table, row))
-        self.main.x_table.columnRemoved.connect(lambda col: table_column_removed(self.main.x_table, col))
-        self.main.y_table.rowInserted.connect(lambda row: table_row_inserted(self.main.y_table, row))
-        self.main.y_table.columnInserted.connect(lambda col: table_column_inserted(self.main.y_table, col))
-        self.main.y_table.rowRemoved.connect(lambda row: table_row_removed(self.main.y_table, row))
-        self.main.y_table.columnRemoved.connect(lambda col: table_column_removed(self.main.y_table, col))
-
-        self.main.x_table.customContextMenuRequested.connect(lambda pos: showStandardContextMenu(self.main.x_table, pos))
-        self.main.x_table.horizontalHeader().customContextMenuRequested.connect(lambda pos: showHeaderContextMenu(self.main.x_table, pos))
-        self.main.y_table.customContextMenuRequested.connect(lambda pos: showStandardContextMenu(self.main.y_table, pos))
-        self.main.y_table.horizontalHeader().customContextMenuRequested.connect(lambda pos: showHeaderContextMenu(self.main.y_table, pos))
-        self.main.boundry_table.customContextMenuRequested.connect(lambda pos: showBaseContextMenu(self.main.boundry_table, pos))
-
-        self.main.candidate_pnt_table.customContextMenuRequested.connect(lambda pos: showQueryContextMenu(self.main.candidate_pnt_table, pos))
-        self.main.pending_pnt_table.customContextMenuRequested.connect(lambda pos: showQueryContextMenu(self.main.pending_pnt_table, pos))
-
-        self.main.candidate_pnt_table.allToX.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.x_table))
-        self.main.candidate_pnt_table.selectedToX.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.x_table, selected=True))
-        self.main.candidate_pnt_table.allToOther.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.pending_pnt_table))
-        self.main.candidate_pnt_table.selectedToOther.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.pending_pnt_table, selected=True))
-        self.main.pending_pnt_table.allToX.connect(lambda: movePoints(self.main.pending_pnt_table, self.main.x_table))
-        self.main.pending_pnt_table.selectedToX.connect(lambda: movePoints(self.main.pending_pnt_table, self.main.x_table, selected=True))
-        self.main.pending_pnt_table.allToOther.connect(lambda: movePoints(self.main.pending_pnt_table, self.main.candidate_pnt_table))
-        self.main.pending_pnt_table.selectedToOther.connect(lambda: movePoints(self.main.pending_pnt_table, self.main.candidate_pnt_table, selected=True))
+        self.main.candidate_pnt_table.selectedToDecisionRequested.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.x_table, selected=True))
+        self.main.candidate_pnt_table.allToDecisionRequested.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.x_table))
+        self.main.candidate_pnt_table.selectedToPendingRequested.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.pending_pnt_table, selected=True))
+        self.main.candidate_pnt_table.allToPendingRequested.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.pending_pnt_table))
 
         self.main.x_table.verticalScrollBar().valueChanged.connect(self.main.y_table.verticalScrollBar().setValue)
         self.main.x_table.horizontalScrollBar().valueChanged.connect(onHorizontalScrollBarChange)
@@ -699,23 +740,20 @@ class Controller(QMainWindow):
         self.main.pending_pnt_table.horizontalScrollBar().valueChanged.connect(onHorizontalScrollBarChange)
         self.main.boundry_table.horizontalScrollBar().valueChanged.connect(onHorizontalScrollBarChange)
 
-        self.main.epoch_label.textChanged.connect(lambda epoch: on_epoch_change(int(epoch)))
+        self.main.canvas.progressUpdate.connect(self.main.progress_button.updateValue)
+        self.main.canvas.progressUpdate.connect(self.plots.progress_button.updateValue)
+        self.plots.canvas.progressUpdate.connect(self.main.progress_button.updateValue)
+        self.plots.canvas.progressUpdate.connect(self.plots.progress_button.updateValue)
 
-        self.main.ucb_button.clicked.connect(lambda: self.main.beta_spinbox.setEnabled(True))
-        self.main.kg_button.clicked.connect(lambda: self.main.beta_spinbox.setEnabled(False))
-        self.main.update_gp_button.clicked.connect(updateGP)
-        self.main.query_candidates_button.clicked.connect(queryGP)
+        self.main.ucb_button.toggled.connect(lambda state: self.main.beta_spinbox.setEnabled(state))
+        
         self.main.obj_func_btn.clicked.connect(self.main.obj_func_win.show)
-        self.main.obj_func_win.gotCustomFunction.connect(applyObjFuncToY)
-        self.plots.acq_min_button.clicked.connect(lambda: self.plots.acq_fixed_table.setEnabled(False))
-        self.plots.acq_mean_button.clicked.connect(lambda: self.plots.acq_fixed_table.setEnabled(False))
-        self.plots.acq_fix_button.clicked.connect(lambda: self.plots.acq_fixed_table.setEnabled(True))
-        self.plots.post_min_button.clicked.connect(lambda: self.plots.post_fixed_table.setEnabled(False))
-        self.plots.post_mean_button.clicked.connect(lambda: self.plots.post_fixed_table.setEnabled(False))
-        self.plots.post_fix_button.clicked.connect(lambda: self.plots.post_fixed_table.setEnabled(True))
-        self.plots.update_proj_button.clicked.connect(lambda: self.GPBO.plot(main=True) if self.GPBO is not None else None)
-        self.main.progress_button.progressBarEnabled.connect(on_progress_bar_enable)
+        self.main.obj_func_win.gotCustomFunction.connect(onGotObjectiveFunction)
+        self.menu_bar.priorRequested.connect(self.menu_bar.prior_win.show)
+        self.menu_bar.prior_win.gotCustomFunction.connect(onGotPriorFunction)
 
+        self.plots.acq_fix_button.toggled.connect(lambda state: self.plots.acq_fixed_table.setEnabled(state))
+        self.plots.post_fix_button.toggled.connect(lambda state: self.plots.post_fixed_table.setEnabled(state))
         self.plots.acq_x_combobox.currentIndexChanged.connect(lambda: onPlotsComboBoxChange(self.plots.acq_x_combobox, self.plots.acq_y_combobox))
         self.plots.acq_y_combobox.currentIndexChanged.connect(lambda: onPlotsComboBoxChange(self.plots.acq_y_combobox, self.plots.acq_x_combobox))
         self.plots.post_x_combobox.currentIndexChanged.connect(lambda: onPlotsComboBoxChange(self.plots.post_x_combobox, self.plots.post_y_combobox))
@@ -723,97 +761,12 @@ class Controller(QMainWindow):
 
         self.plots.epoch_spinbox.valueChanged.connect(onPlotsEpochChange)
 
-        self.menu_bar.newFile.connect(on_new_file)
-        self.menu_bar.openFile.connect(on_open_file)
-        self.menu_bar.refreshPlots.connect(on_plot_refresh)
-        self.menu_bar.saveAsFile.connect(on_save_as)
-        self.menu_bar.preferences.connect(on_open_preferences)
-        
-        self.main.obj_func_win.done_btn.clicked.connect(applyObjFuncToY)
-
         self.menu_bar.pref_win.app_font_sb.valueChanged.connect(app_font_size_change)
         self.menu_bar.pref_win.path_log_le.editingFinished.connect(lambda: verify_path(self.menu_bar.pref_win.path_log_le))
-        self.menu_bar.priorRequested.connect(self.menu_bar.prior_win.show)
-        self.menu_bar.prior_win.gotCustomFunction.connect(got_prior)
 
-        self.centralWidget().tabs.tabEnabled.connect(on_tab_enabled)
-
-
-class SuperGPBO(interactiveGPBO):
-    """
-    This is a super class of the interactive GPBO. Its purpose is to add another
-    level of abstraction on top of the interactive GPBO, which is subject to 
-    changes and requires many function parameters.
-    """
-    def __init__(self, main_window: QWidget, filename: str = None, regular_init: bool = False,*args, **kwargs):
-        """
-        Initializes the GPBO. If a file name is supplied, it will load the file 
-        instead of running its regular procedures.
-        
-        By supplying it the main window of BO-GUI, you are giving it access to 
-        all QWidgets within the program. While this sacrifices reusability, it 
-        improves on abstraction so greatly that I believe it is worth utilizing.
-
-        Args:
-            main_window (QWidget): The main window of BO-GUI.
-            filename (str, optional): Name of file to load. Defaults to None.
-        """
-        self.control: Controller = main_window
-        
-
-        if filename:
-            super().__init__(load_log_fname=filename)
-            self.updateProgressBar.connect(self.control.main.progress_button.updateValue)
-            self.updateProgressBar.connect(self.control.plots.progress_button.updateValue)
-            return
-        elif regular_init:
-            super().__init__(*args, **kwargs)
-            self.updateProgressBar.connect(self.control.main.progress_button.updateValue)
-            self.updateProgressBar.connect(self.control.plots.progress_button.updateValue)
-            return
-        
-        
-        x, y = self._xy()
-        
-        bounds = self._bounds()
-        batch_size = self._batch_size()
-        acq_func, acq_args = self._acq()
-        prior = self._prior()
-        
-        super().__init__(x, y, bounds=bounds, batch_size=batch_size,
-                         acquisition_func=acq_func, 
-                         acquisition_func_args=acq_args, 
-                         prior_mean_model=prior)
-        self.updateProgressBar.connect(self.control.main.progress_button.updateValue)
-        self.updateProgressBar.connect(self.control.plots.progress_button.updateValue)
-    def _bool_projection(self, projection_type: str) -> Tuple[bool, bool]:
-        """Converts projection type into a boolean sequence.
-
-        Args:
-            projection_type (str): "Minimum" or "Mean".
-
-        Returns:
-            tuple[bool, bool]: Minimum and mean projection
-            types.
-        """
-        minimum = False
-        mean = False
-        
-        if projection_type == "Minimum":
-            minimum = True
-        elif projection_type == "Mean":
-            mean = True
-            
-        return minimum, mean
-    def _xy(self) -> Tuple[np.array, np.array]:
-        """Gets X and Y. 
-
-        Returns:
-            tuple[np.array, np.array]: X and Y.
-        """
-        # Remove last row to account for table's auto-resizing
-        x = self.control.main.x_table.to_list()
-        y = self.control.main.y_table.to_list()
+    def update_GP(self):
+        x = self.main.x_table.to_list()
+        y = self.main.y_table.to_list()
         
         list1D_all_none = lambda list1D: all(x is None for x in list1D)
         list1D_any_none = lambda list1D: any(x is None for x in list1D)
@@ -829,7 +782,7 @@ class SuperGPBO(interactiveGPBO):
             else:
                 remaining_x.append(x[i])
                 remaining_y.append(y[i])
-
+                
         if len(possible_mistakes) > 0:
             if len(possible_mistakes) == 1:
                  detailed_text =  "Row: " + str(possible_mistakes[0] + 1)
@@ -844,67 +797,101 @@ class SuperGPBO(interactiveGPBO):
             warning.setDetailedText(detailed_text)
             if not warning.exec() == QMessageBox.Yes:
                 raise ValueError("GPBO cancelled.")
-
-        return np.array(remaining_x, dtype=DTYPE), np.array(remaining_y, dtype=DTYPE)
-    def _batch_size(self) -> int:
-        """Retrieves the batch size.
-
-        Returns:
-            int: Batch size.
-        """
-        return self.control.main.batch_spin_box.value()
-    def _acq(self) -> Tuple[str, Union[Dict[str, float], None]]:
-        """Retrieves the acquisition function and its arguments.
-
-        Returns:
-            tuple[str, dict[str, float] | None]: Acquisition function and its 
-            arguments
-        """        
-        if self.control.main.ucb_button.isChecked():
-            acq_func = 'UCB'
-            acq_func_args = {'beta': self.control.main.beta_spinbox.value()}
-        elif self.control.main.kg_button.isChecked():
-            acq_func = 'KG'
-            acq_func_args = None
             
-        return acq_func, acq_func_args
-    def _bounds(self) -> np.array:
-        """Retrieves the boundary.
+        x = np.array(remaining_x)
+        y = np.array(remaining_y)
+        
+        if x.size == 0 or y.size == 0:
+            raise ValueError("The GPBO needs data to be initialized.")
+            
+        if not hasattr(self, "GPBO") or not self.GPBO:
+            bounds = np.array(self.main.boundry_table.to_list())
+            batch_size = self.main.batch_spin_box.value()
+            
+            if self.main.ucb_button.isChecked():
+                acq_func = "UCB"
+            else:
+                raise ValueError("Please select an acquisition function.")
+            self.GPBO = interactiveGPBO(x, y, bounds=bounds, batch_size=batch_size, acquisition_func=acq_func, prior_mean_model=self.prior_mean_model)
+        else:
+            self.GPBO.update_GP(x=x, y=y)
+        self.updatedGPBO.emit(self.GPBO.epoch())
+    def plot(self, view: Union[MainView, PlotsView]):
+        if not hasattr(self, "GPBO") or not self.GPBO:
+            raise AttributeError("The GPBO has not yet been initialized.")
+        elif view is self.main:
+            query_number = len(self.GPBO.history[self.GPBO.epoch()]["x1"]) - 1 if len(self.GPBO.history[self.GPBO.epoch()]["x1"]) - 1 > -1 else None
+            epoch = self.GPBO.epoch()
+        elif view is self.plots:
+            query_number = int(self.plots.query_combobox.currentText()) - 1 if self.plots.query_combobox.currentText() != "All" else None
+            epoch = self.plots.epoch_spinbox.value()
+        else:
+            raise ValueError(f"Cannot plot at {view}.")
+        
+        DECISION_HEADER = self.main.x_table.get_horizontal_labels()
+        
+        # LABELS
+        acq_xlabel = self.plots.acq_x_combobox.currentText() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER[0]
+        acq_ylabel = self.plots.acq_y_combobox.currentText() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER[1]
+        post_xlabel = self.plots.post_x_combobox.currentText() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER[0]
+        post_ylabel = self.plots.post_y_combobox.currentText() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER[1]
+        
+        # DIMENSION INDICES
+        acq_xdim = self.plots.acq_x_combobox.currentIndex() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER.index(acq_xlabel)
+        acq_ydim = self.plots.acq_y_combobox.currentIndex() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER.index(acq_ylabel)
+        post_xdim = self.plots.post_x_combobox.currentIndex() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER.index(post_xlabel)
+        post_ydim = self.plots.post_y_combobox.currentIndex() if self.plots.acq_x_combobox.currentIndex() != -1 else DECISION_HEADER.index(post_ylabel)
+                
+        # PROJECTION TYPE
+        if self.GPBO.epoch() < 1 or self.plots.acq_min_button.isChecked():
+            acq_proj_min = True
+            acq_proj_mean = False
+            acq_fixed_vals = None
+        elif self.plots.acq_mean_button.isChecked():
+            acq_proj_min = True
+            acq_proj_mean = False
+            acq_fixed_vals = None
+        elif self.plots.acq_fix_button.isChecked():
+            acq_proj_min = False
+            acq_proj_mean = False
+            acq_fixed_vals = self.plots.acq_fixed_table.to_dim()
+        if self.GPBO.epoch() < 1 or self.plots.post_min_button.isChecked():
+            post_proj_min = True
+            post_proj_mean = False
+            post_fixed_vals = None
+        elif self.plots.acq_mean_button.isChecked():
+            post_proj_min = False
+            post_proj_mean = True
+            post_fixed_vals = None
+        elif self.plots.acq_fix_button.isChecked():
+            post_proj_min = False
+            post_proj_mean = False
+            post_fixed_vals = self.plots.acq_fixed_table.to_dim()
 
-        Returns:
-            np.array: Boundary.
-        """
-        bounds = self.control.main.boundry_table.to_list()
-
-        for element in bounds:
-            if len(element) < 2:
-                raise ValueError("Boundary incomplete.")
-            elif element[0] > element[1]:
-                raise ValueError("Boundary minimum must be less than its corresponding maximum.")
-
-        return np.array(bounds, dtype=DTYPE)
-    def _prior(self):
-        return self.control.prior_mean_model
-    def _epoch(self) -> int:
-        """Retrieves the epoch.
-
-        Returns:
-            int: Epoch.
-        """
-        return len(self.history) - 1
-    def _update_epoch(self):
-        """
-        Updates the on-screen epoch label.
-        """
-        epoch = self._epoch()
-        self.control.main.epoch_label.setText(str(epoch))
-    def _pending_pnts(self) -> Union[np.array, None]:
-        """Retrieves pending points.
-
-        Returns:
-            np.array | None: Pending points or nothing.
-        """
-        pending_pnts = self.control.main.pending_pnt_table.to_list()
+        # KWARGS
+        beta = self.main.beta_spinbox.value() if self.main.ucb_button.isChecked() else None
+        
+        def plot():
+            view.canvas.clear()
+            
+            if self.main.plot_button.isChecked():
+                self.plotStarted.emit()
+                try:
+                    view.canvas.plot_acquisition(self.GPBO, epoch, query_number, beta, acq_xdim, acq_ydim, acq_proj_min, acq_proj_mean, acq_fixed_vals)
+                    view.canvas.plot_posterior(self.GPBO, epoch, query_number, post_xdim, post_ydim, post_proj_min, post_proj_mean, post_fixed_vals)
+                except RuntimeError:
+                    view.canvas.plot_acquisition(self.GPBO, epoch, query_number, beta, acq_xdim, acq_ydim, acq_proj_min, acq_proj_mean, acq_fixed_vals, overdrive=True)
+                    view.canvas.plot_posterior(self.GPBO, epoch, query_number, post_xdim, post_ydim, post_proj_min, post_proj_mean, post_fixed_vals, overdrive=True)
+            view.canvas.plot_obj_history(self.GPBO)  # fast
+            self.plotFinished.emit(0 if view.canvas is self.main.canvas else 1 if view.canvas is self.plots.canvas else None)
+                
+        thread = threading.Thread(target=plot)
+        thread.start()
+    def query(self):
+        self.queryStarted.emit()
+        
+        # PENDING POINTS
+        pending_pnts = self.main.pending_pnt_table.to_list()
         
         list1D_all_none = lambda list1D: all(x is None for x in list1D)
         list1D_any_none = lambda list1D: any(x is None for x in list1D)
@@ -932,356 +919,18 @@ class SuperGPBO(interactiveGPBO):
             warning = QMessageBox(QMessageBox.Warning, "WARNING", "Some pending points are incomplete. Would you like to proceed?", QMessageBox.No | QMessageBox.Yes, self.control)
             warning.setDetailedText(detailed_text)
             if not warning.exec() == QMessageBox.Yes:
+                self.queryFinished.emit(None)
                 raise ValueError("GPBO cancelled.")
             
-        return remaining if remaining else None
-    def _get_info(self, gp=False, proj=False) -> Tuple[Dict[str, Union[List[Axes], str, int, Union[Dict[int, np.float32], None], str]], Dict[str, Union[Axes, str, int, Union[Dict[int, np.float32], None], str]], Dict[str, Axes]]:
-        """
-        Retrieves necessary information and puts it into a neat dictionary.
+        pending_pnts = remaining if remaining else None
         
-        Args:
-            gp (bool, optional): Do you need the preview axis? Defaults to False.
-            proj (bool, optional): Do you need the main axis? Defaults to False.
-
-        Returns:
-            dict: Acquisition information.
-            dict: Posterior information.
-            dict: Objective History information.
-            
-        Keys:
-            "Axes" (List[Axes]): Requested posterior axes.
-            "X Label" (str): Current x-label.
-            "Y Label" (str): Current y-label.
-            "X Dimension" (int): Represents current x-axis dimension.
-            "Y Dimension" (int): Represents current y-axis dimension.
-            "Fixed Values" (Union[dict, None]): Current fixed dimensional values.
-            "Projection Type" (str): "Minimum", "Mean", or "Fixed".
-        """
-        DECISION_HEADER = self.control.main.x_table.get_horizontal_labels()
-        EPOCH = self._epoch()
+        if self.main.ucb_button.isChecked():
+            acq_func = qUpperConfidenceBound
+            acq_args = {"beta": self.main.beta_spinbox.value()}
         
-        if not gp and not proj:
-            raise ValueError("Must select `GP` or `proj`.")
-
-        # ACQUISITION
-        axes = []
-        if gp:
-            axes.append(self.control.main.canvas.acquisition_ax)
-        if proj:
-            axes.append(self.control.plots.canvas.acquisition_ax)
-        
-        acq = dict()
-        acq["Axes"] = axes
-        acq["X Label"] = self.control.plots.acq_x_combobox.currentText() if EPOCH > 1 else DECISION_HEADER[0]
-        acq["Y Label"] = self.control.plots.acq_y_combobox.currentText() if EPOCH > 1 else DECISION_HEADER[1]
-        acq["X Dimension"] = self.control.plots.acq_x_combobox.currentIndex() if EPOCH > 1 else DECISION_HEADER.index(acq["X Label"])
-        acq["Y Dimension"] = self.control.plots.acq_y_combobox.currentIndex() if EPOCH > 1 else DECISION_HEADER.index(acq["Y Label"])
-        acq["Fixed Values"] = None
-        
-        if EPOCH > 1:
-            if self.control.plots.acq_min_button.isChecked():
-                acq["Projection Type"] = "Minimum"
-            elif self.control.plots.acq_mean_button.isChecked():
-                acq["Projection Type"] = "Mean"
-            else:
-                acq["Projection Type"] = "Fixed"
-                acq["Fixed Values"] = self.control.plots.acq_fixed_table.to_dim()
-        else:
-            acq["Projection Type"] = "Minimum"
-            
-        # POSTERIOR
-        axes = []
-        if gp:
-            axes.append(self.control.main.canvas.posterior_ax)
-        if proj:
-            axes.append(self.control.plots.canvas.posterior_ax)
-        
-        post = dict()
-        post["Axes"] = axes
-        post["X Label"] = self.control.plots.post_x_combobox.currentText() if EPOCH > 1 else DECISION_HEADER[0]
-        post["Y Label"] = self.control.plots.post_y_combobox.currentText() if EPOCH > 1 else DECISION_HEADER[1]
-        post["X Dimension"] = self.control.plots.post_x_combobox.currentIndex() if EPOCH > 1 else DECISION_HEADER.index(acq["X Label"])
-        post["Y Dimension"] = self.control.plots.post_y_combobox.currentIndex() if EPOCH > 1 else DECISION_HEADER.index(acq["Y Label"])
-        post["Fixed Values"] = None
-
-        if EPOCH > 1:
-            if self.control.plots.post_min_button.isChecked():
-                post["Projection Type"] = "Minimum"
-            elif self.control.plots.post_mean_button.isChecked():
-                post["Projection Type"] = "Mean"
-            else:
-                post["Projection Type"] = "Fixed"
-                post["Fixed Values"] = self.control.plots.post_fixed_table.to_dim()
-        else:
-            post["Projection Type"] = "Minimum"
-        
-        # OBJECTIVE HISTORY
-        axes = []
-        if gp:
-            axes.append(self.control.main.canvas.obj_history_ax)
-        if proj:
-            axes.append(self.control.plots.canvas.obj_history_ax)
-        
-        obj = dict()
-        obj["Axes"] = axes
-    
-        return acq, post, obj
-    def plot(self, preview=False, main=False) -> None:
-        """
-        The standard plot for BO-GUI canvases. Must pick one option or the other.
-
-        Args:
-            preview (bool, optional): Plot onto the preview canvas. Defaults to False.
-            main (bool, optional): Plot onto the main canvas. Defaults to False.
-        """
-        if (preview and main) or (not preview and not main):
-            raise ValueError("Must select `preview` or `main`.")
-        
-        def wrapper():
-            print("Plotting...")
-            
-            if self.control.main.plot_button.isChecked() or main:
-                print("!")
-                self.control.main.progress_button.enableProgressBar()
-                self.control.plots.progress_button.enableProgressBar()
-                print("!")
-                if preview:
-                    epoch = self._epoch()
-                    canvas = self.control.main.canvas
-                else:
-                    epoch = self.control.plots.epoch_spinbox.value()
-                    canvas = self.control.plots.canvas
-                print("!")
-                print(epoch)
-                    
-                print("!")
-                query_cb = self.control.plots.query_combobox
-                i = None
-                if main and query_cb.currentText() != "All":
-                    i = int(query_cb.currentText()) - 1
-                elif preview:
-                    i = len(self.history[epoch]["x1"]) - 1
-                    i = i if i > -1 else None
-                print("!")
-                    
-                acq, post, obj = self._get_info(gp=preview, proj=main)
-                acq_min, acq_mean = self._bool_projection(acq["Projection Type"])
-                post_min, post_mean = self._bool_projection(post["Projection Type"])
-                print("!")
-
-                acq_labels = acq["X Label"], acq["Y Label"]
-                post_labels = post["X Label"], post["Y Label"]
-                beta = self.control.main.beta_spinbox.value() if self.control.main.ucb_button.isChecked() else None
-                print("!")
-                
-                canvas.clear()
-                print("*******")
-                print(acq)
-                try:
-                    self.plot_LCB_2D_projection(self.control, 
-                                                epoch=epoch, 
-                                                axes=acq["Axes"],
-                                                dim_xaxis=acq["X Dimension"], 
-                                                dim_yaxis=acq["Y Dimension"],
-                                                project_minimum=acq_min,
-                                                project_mean=acq_mean,
-                                                i_query=i,
-                                                beta=beta,
-                                                fixed_values_for_each_dim=acq["Fixed Values"])
-                    print("LCB Done")
-                    self.plot_GPmean_2D_projection(self.control,
-                                                epoch=epoch,
-                                                axes=post["Axes"],
-                                                dim_xaxis=post["X Dimension"],
-                                                dim_yaxis=post["Y Dimension"],
-                                                project_minimum=post_min,
-                                                project_mean=post_mean,
-                                                i_query=i,
-                                                fixed_values_for_each_dim=post["Fixed Values"])
-                    print("GPmean Done")
-                except RuntimeError as exc:  # Occurs when the dimensions are too high
-                    print(exc)
-                    self.plot_LCB_2D_projection(self.control, 
-                                                epoch=epoch, 
-                                                axes=acq["Axes"],
-                                                dim_xaxis=acq["X Dimension"], 
-                                                dim_yaxis=acq["Y Dimension"],
-                                                project_minimum=acq_min,
-                                                project_mean=acq_mean,
-                                                i_query=i,
-                                                beta=beta,
-                                                fixed_values_for_each_dim=acq["Fixed Values"],
-                                                overdrive=True)
-                    print("LCB Done")
-                    self.plot_GPmean_2D_projection(self.control,
-                                                epoch=epoch,
-                                                axes=post["Axes"],
-                                                dim_xaxis=post["X Dimension"],
-                                                dim_yaxis=post["Y Dimension"],
-                                                project_minimum=post_min,
-                                                project_mean=post_mean,
-                                                fixed_values_for_each_dim=post["Fixed Values"],
-                                                overdrive=True)
-                    print("GPmean Done")
-                    
-                self.plot_obj_history(axes=obj["Axes"])
-                print("Through Plotting")
-                if epoch < 2 and self.control.main.plot_button.isEnabled():
-                    # Show selectcanvas axes
-                    canvas.acquisition_ax.set_visible(True)
-                    canvas.posterior_ax.set_visible(True)
-                    canvas.obj_history_ax.set_visible(False)
-                    canvas._get_obj_twinx().set_visible(False)
-                elif self.control.main.plot_button.isEnabled() and epoch > 0:
-                    # Show all canvas axes
-                    for ax in canvas.get_axes():
-                        if not ax.get_visible():
-                            ax.set_visible(True)
-                elif epoch > 1:
-                    # Hide select canvas axes
-                    canvas.acquisition_ax.set_visible(False)
-                    canvas.posterior_ax.set_visible(False)
-                
-                if main:
-                    print("Here")
-                    canvas.format(acq_labels, post_labels)
-                    canvas.reload()  
-                elif preview:
-                    canvas.format(acq_labels, post_labels, 
-                                  compact=True, legends=False)
-                    canvas.reload(compact=True)
-            elif self._epoch() > 0:
-                if preview:
-                    epoch = self._epoch()
-                    canvas = self.control.main.canvas
-                else:
-                    epoch = self.control.plots.epoch_spinbox.value()
-                    canvas = self.control.plots.canvas
-                    
-                acq, post, obj = self._get_info(gp=preview, proj=main)
-                
-                canvas.clear()
-                for cbar in self.control.colorbars.values():
-                    cbar.remove()
-                self.control.colorbars.clear()
-                
-                self.plot_obj_history(axes=obj["Axes"])
-
-                if epoch > 1:
-                    canvas.acquisition_ax.set_visible(False)
-                    canvas.posterior_ax.set_visible(False)
-                    canvas.obj_history_ax.set_visible(True)
-                    canvas._get_obj_twinx().set_visible(True)
-                else:
-                    canvas.acquisition_ax.set_visible(False)
-                    canvas.posterior_ax.set_visible(False)
-                    canvas.obj_history_ax.set_visible(False)
-                    canvas._get_obj_twinx().set_visible(False)
-                    
-                
-                acq_labels = acq["X Label"], acq["Y Label"]
-                post_labels = post["X Label"], post["Y Label"]
-                canvas.format(acq_labels, post_labels, 
-                                  compact=True, legends=False)
-                canvas.reload(compact=True)
-                
-        thread = threading.Thread(target=wrapper)
-        thread.start()
-    def refresh_plots(self):
-        print("Refreshing plots....")
-        
-        acq, post, _ = self._get_info(gp=True, proj=True)
-
-        acq_labels = acq["X Label"], acq["Y Label"]
-        post_labels = post["X Label"], post["Y Label"]
-        
-        self.control.plots.canvas.format(acq_labels, post_labels)
-        self.control.plots.canvas.reload()
-        
-        self.control.main.canvas.format(acq_labels, post_labels, 
-                                        compact=True, legends=False)
-        self.control.main.canvas.reload(compact=True)   
-    def update(self) -> None:
-        """Update the GP."""
-        print("Updating GP...")
-        
-        x, y = self._xy()
-        print("Got XY")
-        
-        self.update_GP(x=x,y=y)
-        print("GP Updated")
-        self._update_epoch()
-        print("Epoch Updated")
-        
-        self.plot(preview=True)
-    def query(self) -> None:
-        """Query for candidate points."""
-        def calcDistance(pnt_A, pnt_B, weights=None):
-            distances = []
-            for i in range(len(pnt_A)):
-                coord_A = pnt_A[i]
-                coord_B = pnt_B[i]
-                if weights:
-                    distances.append(abs(coord_A - coord_B) * weights[i])
-                else:
-                    distances.append(abs(coord_A - coord_B))
-            return max(distances)
-        def findBestPoint(prev_pnt, eval_pnts, weights=None):
-            # calculating distances
-            eval_pnt_distances = []
-            for eval_pnt in eval_pnts:
-                    distance = calcDistance(prev_pnt, eval_pnt, weights)
-                    eval_pnt_distances.append(distance)
-                    
-            pnt_index = eval_pnt_distances.index(min(eval_pnt_distances))
-            return eval_pnts[pnt_index], pnt_index
-        def orderByDistance(prev_pnt, eval_pnts, weights=None):
-            ordered_pnts = []
-
-            if not weights or len(eval_pnts[0]) != len(weights):
-                weights = []
-
-            while eval_pnts.size != 0:
-                best_pnt, best_pnt_index = findBestPoint(prev_pnt, eval_pnts, weights)
-                ordered_pnts.append(best_pnt)
-                eval_pnts = np.delete(eval_pnts, best_pnt_index, 0)
-            return np.array(ordered_pnts)
-        
-        def wrapper():
-            print("Querying candidates...")
-
-            bsize = self._batch_size()
-            epoch = self._epoch()
-            pending_pnts = self._pending_pnts()
-            
-            if self.control.main.ucb_button.isChecked():
-                acq_func = qUpperConfidenceBound
-                acq_args = {"beta": self.control.main.beta_spinbox.value()}
-            else:
-                acq_func = qKnowledgeGradient
-                acq_args = {"num_fantasies": 64}
-
-            candidates = self.query_candidates(batch_size=bsize, X_pending=pending_pnts, acquisition_func=acq_func, acquisition_func_args=acq_args)
-            candidates = orderByDistance(self.x[-1], candidates, weights=None).tolist()
-            print(f"\t{candidates}")
-            
-            self.control.main.candidate_pnt_table.setRowCount(0)  # pseudo-clear
-            self.control.main.candidate_pnt_table.setRowCount(len(candidates))
-            self.control.main.candidate_pnt_table.fill(candidates)
-            
-            if self.control.plots.epoch_spinbox.value() == epoch:
-                candidate_pnts = self.history[epoch]['x1']
-
-                for i in range(1, self.control.plots.query_combobox.count()):
-                    self.control.plots.query_combobox.removeItem(1)
-                
-                for i in range(len(candidate_pnts)):
-                    self.control.plots.query_combobox.addItem(f'{i+1}')
-            
-            if self.control.main.plot_button.isChecked():
-                self.plot(preview=True)
-            self.control.main.query_candidates_button.setEnabled(True)
-            self.control.main.update_gp_button.setEnabled(True)
-            
-        thread = threading.Thread(target=wrapper)
+        def query():
+            candidates = self.GPBO.query_candidates(batch_size=self.main.batch_spin_box.value(), X_pending=pending_pnts, acquisition_func=acq_func, acquisition_func_args=acq_args)
+            # this is where I would order by ramping rate
+            self.queryFinished.emit(candidates.tolist())
+        thread = threading.Thread(target=query)
         thread.start()

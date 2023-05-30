@@ -9,7 +9,6 @@ from copy import deepcopy as copy
 from datetime import date
 from typing import (Any, Callable, Dict, List, NoReturn, Optional, Tuple, Type,
                     Union)
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -233,9 +232,7 @@ class prior_mean_model_wrapper(torch.nn.Module):
                         self.transformer(x_decision.view(n_batch, shape[-1])), x_env, **self.kwargs), dtype=x_decision.dtype).view(*shape[:-1])
 
 
-class interactiveGPBO(QObject):
-    updateProgressBar = pyqtSignal(int)
-
+class interactiveGPBO():
     def __init__(self,
                  x=None,
                  y=None,
@@ -258,8 +255,6 @@ class interactiveGPBO(QObject):
                  tag=""
                  ):
 
-        super().__init__()
-
         if load_log_fname != '':
             self.load_from_log(load_log_fname,
                                acquisition_func=acquisition_func,
@@ -278,11 +273,13 @@ class interactiveGPBO(QObject):
 
         assert x is not None
         assert y is not None
-
-        _, dim = x.shape
-        assert self.dim == dim
         self.x = np.array(x, dtype=np.float64)
         self.y = np.array(y, dtype=np.float64)
+        print(self.x, self.y)
+
+        _, dim = self.x.shape
+        assert self.dim == dim
+        
         if yvar is None:
             self.yvar = None
         else:
@@ -626,371 +623,11 @@ class interactiveGPBO(QObject):
             ax.set_ylabel("obj")
         return axes
 
-    def plot_obj_history(self, plot_best_only=False, axes=None,ax=None):
-        y_best_hist = [np.min(self.history[-1]['y'][:i+1])
-                       for i in range(len(self.history[-1]['y']))]
-        if ax:
-            axes = [ax]
-        elif axes is None:
-            fig, ax = plt.subplots(figsize=(4, 3))
-            axes = [ax]
-        for ax in axes:
-            ax.plot(y_best_hist, color='C0', label='Cumulative Minimum Loss')
-            if not plot_best_only:
-                def has_twin(ax):
-                    for other_ax in ax.figure.axes:
-                        if other_ax is ax:
-                            continue
-                        if other_ax.bbox.bounds == ax.bbox.bounds:
-                            return True
-                    return False
-                
-                if not has_twin(ax):
-                    ax1 = ax.twinx()
-                else:
-                    ax1 = ax.get_shared_x_axes().get_siblings(ax)[0]
-                # ax1 = ax.twinx()
-                ax1.plot(self.history[-1]['y'], color='C1', label='Loss')
-                # ax1.set_ylabel('obj history')
-                # ax1.legend(loc='lower left')
-            # ax.legend(loc='upper right')
-            # ax.set_xlabel("evaluation budget")
-            # ax.set_ylabel("best obj")
-        return axes
-
-    def plot_LCB_2D_projection(self,
-                               main_window,
-                               epoch=None,
-                               i_query=None,
-                               beta=None,
-                               dim_xaxis=0, dim_yaxis=1,
-                               grid_points_each_dim=25,
-                               project_minimum=True,
-                               project_mean=False,
-                               fixed_values_for_each_dim=None,
-                               overdrive=False,
-                               axes=None,ax=None):
-        '''
-        fixed_values_for_each_dim: dict of key: dimension, val: value to fix for that dimension
-        '''
-        if grid_points_each_dim**(self.dim-2)*(self.dim-2) > 2e6 and (project_minimum or project_mean):
-            print("Due to high-dimensionality and large number of grid point, plot_aquisition_2D_projection with 'project_minimum=True' or 'project_mean=True' cannot proceed. Try again with lower number of 'grid_points_each_dim' or use 'fixed_values_for_each_dim'")
-            return
-        if epoch is None:
-            epoch = len(self.history)-1
-
-        if beta is None:
-            if hasattr(self.history[epoch]['acquisition'], 'beta_prime'):
-                beta = (self.history[epoch]
-                        ['acquisition'].beta_prime*2/np.pi)**2
-            else:
-                beta = 2
-
-        gp = self.history[epoch]['gp']
-        if gp is None:
-            if overdrive:
-                raise RuntimeError("acquisition function at epoch "+str(epoch) +
-                                   " is not saved into memory. Turn on 'overdrive' to proceed.")
-            else:
-                print("acquisition function at epoch "+str(epoch) +
-                      " is not saved into memory. Trying to restore based on training data. Restoration will not be exactly same.")
-                x = self.history[epoch]['x']
-                y = self.history[epoch]['y']
-                xt = torch.tensor(self.normalize(x), dtype=torch.float32)
-                # sign flip for minimization (instead of maximization)
-                yt = torch.tensor(-y, dtype=torch.float32)
-                gp = SingleTaskGP(xt, yt, mean_module=self.prior_mean_model)
-                mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
-                fit_gpytorch_model(mll, options=self.scipy_minimize_options)
-        acq = UpperConfidenceBound(gp, beta=beta)
-
-        if self.dim > 2:
-            batch_size = 1
-            for n in range(self.dim-2):
-                batch_size *= grid_points_each_dim
-
-                if batch_size*self.dim > 2e4:
-                    if overdrive or not (project_minimum or project_mean):
-                        batch_size = int(batch_size/grid_points_each_dim)
-                        print("starting projection plot...")
-                        break
-                    else:
-                        raise RuntimeError(
-                            "Aborting: due to high-dimensionality and large number of grid point, minimum or mean projection plot may take long time. Try to reduce 'grid_points_each_dim' or turn on 'overdrive' if long time waiting is OK'")
-            n_batch = int(grid_points_each_dim**(self.dim-2)/batch_size)
-
-        linegrid = np.linspace(0, 1, grid_points_each_dim)
-        x_grid = np.zeros(
-            (grid_points_each_dim*grid_points_each_dim, self.dim))
-        y_grid = np.zeros((grid_points_each_dim*grid_points_each_dim))
-
-        n = 0
-        for i in self.calculateProgress(range(grid_points_each_dim)):
-            bounds_xaxis = self.history[epoch]['bounds'][dim_xaxis, :]
-            for j in range(grid_points_each_dim):
-                bounds_yaxis = self.history[epoch]['bounds'][dim_yaxis, :]
-                x_grid[n, dim_xaxis] = linegrid[i] * \
-                    (bounds_xaxis[1]-bounds_xaxis[0])+bounds_xaxis[0]
-                x_grid[n, dim_yaxis] = linegrid[j] * \
-                    (bounds_yaxis[1]-bounds_yaxis[0])+bounds_yaxis[0]
-                if (project_minimum or project_mean) and self.dim > 2:
-                    inner_grid = []
-                    for d in range(self.dim):
-                        if d == dim_xaxis:
-                            inner_grid.append([x_grid[n, dim_xaxis]])
-                        elif d == dim_yaxis:
-                            inner_grid.append([x_grid[n, dim_yaxis]])
-                        else:
-                            inner_grid.append(np.linspace(self.history[epoch]['bounds'][d, 0],
-                                                          self.history[epoch]['bounds'][d, 1],
-                                                          grid_points_each_dim))
-
-                    inner_grid = np.meshgrid(*inner_grid)
-                    inner_grid = np.array(list(list(x.flat)
-                                          for x in inner_grid), np.float32).T
-                    inner_grid_n = torch.tensor(self.normalize(
-                        inner_grid, self.history[epoch]['bounds']), dtype=torch.float32)
-
-                    y_acq = []
-                    with torch.no_grad():
-                        for b in range(n_batch):
-                            i1 = b*batch_size
-                            i2 = i1 + batch_size
-                            x_batch = inner_grid_n[i1:i2]
-                            y_acq.append(
-                                acq(x_batch.view(-1, 1, self.dim)).detach().numpy())
-
-                    y_acq = -np.concatenate(y_acq, axis=0)
-                    if project_minimum:
-                        imin = np.argmin(y_acq)
-                        y_grid[n] = y_acq[imin]
-                        x_grid[n, :] = inner_grid[imin]
-                    elif project_mean:
-                        y_grid[n] = np.mean(y_acq)
-                n += 1
-
-        if (not (project_minimum or project_mean)) or self.dim == 2:
-            if fixed_values_for_each_dim is not None:
-                for dim, val in fixed_values_for_each_dim.items():
-                    x_grid[:, dim] = val
-
-            x_grid_n = torch.tensor(self.normalize(
-                x_grid, self.history[epoch]['bounds']), dtype=torch.float32)
-            y_grid = -acq(x_grid_n.view(-1, 1, self.dim)).detach().numpy()
-
-        x = self.history[epoch]['x']
-
-        if i_query is None:
-            x1 = self.history[epoch]['x1']
-            if len(x1) > 0:
-                x1 = np.vstack(x1)
-            else:
-                x1 = None
-
-            X_pending = []
-            for xp_ in self.history[epoch]['X_pending']:
-                if xp_ is not None:
-                    X_pending.append(xp_)
-            if len(X_pending) > 0:
-                X_pending = np.vstack(X_pending)
-            else:
-                X_pending = None
-        else:
-            if i_query >= len(self.history[epoch]['x1']):
-                raise ValueError(
-                    'i_query exceed number of query in the epoch '+str(epoch))
-            x1 = self.history[epoch]['x1'][i_query]
-            X_pending = self.history[epoch]['X_pending'][i_query]
-
-        if ax:
-            axes = [ax]
-        elif axes is None:
-            fig, ax = plt.subplots(figsize=(4, 4))
-            axes = [ax]
-            
-        for ax in axes:
-            data = ax.tricontourf(
-                x_grid[:, dim_xaxis], x_grid[:, dim_yaxis], y_grid, levels=64, cmap="viridis")
-            tag = ""
-            ax.scatter(x[:, dim_xaxis], x[:, dim_yaxis],
-                    c="b", alpha=0.7, label="training data")
-            if x1 is not None:
-                ax.scatter(x1[:, dim_xaxis], x1[:, dim_yaxis],
-                        c="r", alpha=0.7, label="candidate")
-            if X_pending is not None:
-                X_pending = np.atleast_2d(X_pending)
-                ax.scatter(X_pending[:, dim_xaxis], X_pending[:,
-                        dim_yaxis], s=50, c="r", marker='x', label="pending")
-                
-            addColorBar(ax, data, y_grid, main_window)
-
-        return axes
-
-    def plot_GPmean_2D_projection(self, 
-                                  main_window,
-                                  epoch=None,
-                                  i_query=None,
-                                  dim_xaxis=0, dim_yaxis=1,
-                                  grid_points_each_dim=25,
-                                  project_minimum=True,
-                                  project_mean=False,
-                                  fixed_values_for_each_dim=None,
-                                  overdrive=False,
-                                  axes=None,ax=None):
-        '''
-        fixed_values_for_each_dim: dict of key: dimension, val: value to fix for that dimension
-        '''
-
-        if epoch is None:
-            epoch = len(self.history)-1
-
-        if self.dim > 2:
-            batch_size = 1
-            for n in range(self.dim-2):
-                batch_size *= grid_points_each_dim
-
-                if batch_size*self.dim > 2e4:
-                    if overdrive or not (project_minimum or project_mean):
-                        batch_size = int(batch_size/grid_points_each_dim)
-                        print("starting projection plot...")
-                        break
-                    else:
-                        raise RuntimeError(
-                            "Aborting: due to high-dimensionality and large number of grid point, minimum or mean projection plot may take long time. Try to reduce 'grid_points_each_dim' or turn on 'overdrive' if long time waiting is OK'")
-            n_batch = int(grid_points_each_dim**(self.dim-2)/batch_size)
-
-        gp = self.history[epoch]['gp']
-        if gp is None:
-            if overdrive:
-                raise RuntimeError(
-                    "gp at epoch "+str(epoch)+" is not saved into memory. Turn on 'overdrive' to proceed.")
-            else:
-                print("gp function at epoch "+str(epoch) +
-                      " is not saved into memory. Trying to restore based on training data. Restoration will not be exactly same.")
-                x = self.history[epoch]['x']
-                y = self.history[epoch]['y']
-                xt = torch.tensor(self.normalize(x), dtype=torch.float32)
-                # sign flip for minimization (instead of maximization)
-                yt = torch.tensor(-y, dtype=torch.float32)
-                L2reg = self.L2reg
-                if L2reg > 0.0:
-                    reg = L2reg*xt**2
-                    yt += torch.sum(reg, dim=-1, keepdim=True)
-                gp = SingleTaskGP(xt, yt, mean_module=self.prior_mean_model)
-                mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
-                fit_gpytorch_model(mll, options=self.scipy_minimize_options)
-
-        linegrid = np.linspace(0, 1, grid_points_each_dim)
-        x_grid = np.zeros(
-            (grid_points_each_dim*grid_points_each_dim, self.dim))
-        y_grid = np.zeros((grid_points_each_dim*grid_points_each_dim))
-        n = 0
-        for i in self.calculateProgress(range(grid_points_each_dim)):
-            bounds_xaxis = self.history[epoch]['bounds'][dim_xaxis, :]
-            for j in range(grid_points_each_dim):
-                bounds_yaxis = self.history[epoch]['bounds'][dim_yaxis, :]
-                x_grid[n, dim_xaxis] = linegrid[i] * \
-                    (bounds_xaxis[1]-bounds_xaxis[0])+bounds_xaxis[0]
-                x_grid[n, dim_yaxis] = linegrid[j] * \
-                    (bounds_yaxis[1]-bounds_yaxis[0])+bounds_yaxis[0]
-                if (project_minimum or project_mean) and self.dim > 2:
-                    inner_grid = []
-                    for d in range(self.dim):
-                        if d == dim_xaxis:
-                            inner_grid.append([x_grid[n, dim_xaxis]])
-                        elif d == dim_yaxis:
-                            inner_grid.append([x_grid[n, dim_yaxis]])
-                        else:
-                            inner_grid.append(np.linspace(self.history[epoch]['bounds'][d, 0],
-                                                          self.history[epoch]['bounds'][d, 1],
-                                                          grid_points_each_dim))
-
-                    inner_grid = np.meshgrid(*inner_grid)
-                    inner_grid = np.array(list(list(x.flat)
-                                          for x in inner_grid), np.float32).T
-                    inner_grid_n = torch.tensor(self.normalize(
-                        inner_grid, self.history[epoch]['bounds']), dtype=torch.float32)
-
-                    y_mean = []
-                    with torch.no_grad():
-                        for b in range(n_batch):
-                            i1 = b*batch_size
-                            i2 = i1 + batch_size
-                            x_batch = inner_grid_n[i1:i2]
-                            y_posterior = gp(x_batch)
-                            y_mean.append(-y_posterior.mean.detach().numpy())
-                    y_mean = np.concatenate(y_mean, axis=0)
-
-                    if project_minimum:
-                        imin = np.argmin(y_mean)
-                        y_grid[n] = y_mean[imin]
-                        x_grid[n, :] = inner_grid[imin]
-                    elif project_mean:
-                        y_grid[n] = np.mean(y_mean)
-
-                n += 1
-
-        if (not (project_minimum or project_mean)) or self.dim == 2:
-            if fixed_values_for_each_dim is not None:
-                for dim, val in fixed_values_for_each_dim.items():
-                    x_grid[:, dim] = val
-
-            x_grid_n = torch.tensor(self.normalize(
-                x_grid, self.history[epoch - 1]['bounds']), dtype=torch.float32)
-            y_posterior = gp(x_grid_n)
-            y_grid = -y_posterior.mean.detach().numpy()
-
-        x = self.history[epoch]['x']
-
-        if i_query is None:
-            x1 = self.history[epoch]['x1']
-            if len(x1) > 0:
-                x1 = np.vstack(x1)
-            else:
-                x1 = None
-
-            X_pending = []
-            for xp_ in self.history[epoch]['X_pending']:
-                if xp_ is not None:
-                    X_pending.append(xp_)
-            if len(X_pending) > 0:
-                X_pending = np.vstack(X_pending)
-            else:
-                X_pending = None
-        else:
-            if i_query >= len(self.history[epoch]['x1']):
-                raise ValueError(
-                    'i_query exceed number of query in the epoch '+str(epoch))
-            x1 = self.history[epoch]['x1'][i_query]
-            X_pending = self.history[epoch]['X_pending'][i_query]
-
-        if ax:
-            axes = [ax]
-        elif axes is None:
-            fig, ax = plt.subplots(figsize=(4, 4))
-            axes = [ax]
-        for ax in axes:
-            data = ax.tricontourf(
-                x_grid[:, dim_xaxis], x_grid[:, dim_yaxis], y_grid, levels=64, cmap="viridis")
-            tag = ""
-            ax.scatter(x[:, dim_xaxis], x[:, dim_yaxis],
-                    c="b", alpha=0.7, label="training data")
-            if x1 is not None:
-                ax.scatter(x1[:, dim_xaxis], x1[:, dim_yaxis],
-                        c="r", alpha=0.7, label="candidate")
-            if X_pending is not None:
-                X_pending = np.atleast_2d(X_pending)
-                ax.scatter(X_pending[:, dim_xaxis], X_pending[:,
-                        dim_yaxis], s=50, c="r", marker='x', label="pending")
-                
-            addColorBar(ax, data, y_grid, main_window)
-
-        return axes
 
     def plot_func_projection(self, func, bounds, x=None, dim_xaxis=0, dim_yaxis=1, 
                              grid_points_each_dim=25, project_minimum=True, 
                              project_mean=False, fixed_values_for_each_dim=None, 
-                             overdrive=False, axes=None):
+                             overdrive=False):
         '''
         fixed_values_for_each_dim: dict of key: dimension, val: value to fix for that dimension
         '''
@@ -1075,13 +712,6 @@ class interactiveGPBO(QObject):
             if x is not None:
                 ax.scatter(x[:, dim_xaxis], x[:, dim_yaxis],
                         c="b", label=tag+" data")
-        # return cs
-        return axes
-
-    def calculateProgress(self, it, size=40):  # Python3.6+
-        count = len(it)
-
-        self.updateProgressBar.emit(0)
-        for i, item in enumerate(it):
-            yield item
-            self.updateProgressBar.emit(int(size * (i + 1) / count))
+                
+    def epoch(self):
+        return len(self.history) - 1
