@@ -279,6 +279,7 @@ class XTable(BaseTable):
         super().__init__(*args, **kwargs)
         MINIMUM_COLUMN_SIZE = 100
         
+        self.sizePolicy().setVerticalPolicy(QSizePolicy.Ignored)
         self.horizontalHeader().setMinimumSectionSize(MINIMUM_COLUMN_SIZE)
         self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.horizontalHeader().customContextMenuRequested.connect(self.onHeaderContextMenuRequest)
@@ -292,8 +293,10 @@ class XTable(BaseTable):
     def onCellContextMenuRequest(self, pos: QPoint) -> None:
         context_menu = self.CellContextMenu(pos, parent=self)
         if not self.allowsColumnChanges():
-            context_menu.insert_column_action.setVisible(False)
-            context_menu.remove_column_action.setVisible(False)
+            context_menu.insert_menu.menuAction().setVisible(False)
+            context_menu.remove_menu.menuAction().setVisible(False)
+            context_menu.insert_row_action_B.setVisible(True)
+            context_menu.remove_row_action_B.setVisible(True)
         context_menu.popup(self.viewport().mapToGlobal(pos))
     def enableColumnChanges(self, b: bool) -> None:
         """Whether the user can insert/remove columns."""
@@ -327,18 +330,35 @@ class XTable(BaseTable):
             self.cut_action = QAction("Cut", self)
             self.copy_action = QAction("Copy", self)
             self.paste_action = QAction("Paste", self)
-            self.insert_row_action = QAction("Insert Row", self)
-            self.insert_column_action = QAction("Insert Column", self)
-            self.remove_row_action = QAction("Remove Row", self)
-            self.remove_column_action = QAction("Remove Column", self)
+            
+            self.insert_menu = QMenu("Insert...", self)
+            self.insert_row_action_A = QAction("Row", self)
+            self.insert_column_action = QAction("Column", self)
+            self.insert_menu.addAction(self.insert_row_action_A)
+            self.insert_menu.addAction(self.insert_column_action)
+            
+            self.remove_menu = QMenu("Remove...", self)
+            self.remove_row_action_A = QAction("Row", self)
+            self.remove_column_action = QAction("Column", self)
+            self.remove_menu.addAction(self.remove_row_action_A)
+            self.remove_menu.addAction(self.remove_column_action)
+            
+            
+            self.insert_row_action_B = QAction("Insert Row", self)
+            self.remove_row_action_B = QAction("Remove Row", self)
+            self.insert_row_action_B.setVisible(False)
+            self.remove_row_action_B.setVisible(False)
+            
             self.clear_contents_action = QAction("Clear Contents", self)
             
             self.cut_action.triggered.connect(self.cut)
             self.copy_action.triggered.connect(self.copy)
             self.paste_action.triggered.connect(self.paste)
-            self.insert_row_action.triggered.connect(lambda: self.insert_row(pos))
+            self.insert_row_action_A.triggered.connect(lambda: self.insert_row(pos))
+            self.insert_row_action_B.triggered.connect(lambda: self.insert_row(pos))
             self.insert_column_action.triggered.connect(lambda: self.insert_column(pos))
-            self.remove_row_action.triggered.connect(lambda: self.remove_row(pos))
+            self.remove_row_action_A.triggered.connect(lambda: self.remove_row(pos))
+            self.remove_row_action_B.triggered.connect(lambda: self.remove_row(pos))
             self.remove_column_action.triggered.connect(lambda: self.remove_column(pos))
             self.clear_contents_action.triggered.connect(self.clear_contents)
             
@@ -346,10 +366,10 @@ class XTable(BaseTable):
             self.addAction(self.copy_action)
             self.addAction(self.paste_action)
             self.addSeparator()
-            self.addAction(self.insert_row_action)
-            self.addAction(self.insert_column_action)
-            self.addAction(self.remove_row_action)
-            self.addAction(self.remove_column_action)
+            self.addMenu(self.insert_menu)
+            self.addMenu(self.remove_menu)
+            self.addAction(self.insert_row_action_B)
+            self.addAction(self.remove_row_action_B)
             self.addSeparator()
             self.addAction(self.clear_contents_action)
     
@@ -417,12 +437,15 @@ class YTable(BaseTable):
             self.addSeparator()
             self.addAction(self.clear_contents_action)
 
-    
-class BoundryTable(BaseTable):
+
+class BoundaryTable(BaseTable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        MINIMUM_COLUMN_SIZE = 100
-        
+        MINIMUM_COLUMN_SIZE: int = 100
+        BUFFER: int = 4  # for mac
+    
+        self.setRowCount(2)
+    
         self.horizontalHeader().setMinimumSectionSize(MINIMUM_COLUMN_SIZE)
         self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.horizontalHeader().customContextMenuRequested.connect(self.onHeaderContextMenuRequest)
@@ -430,16 +453,16 @@ class BoundryTable(BaseTable):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.onCellContextMenuRequest)
     
-        total_row_height = self.rowHeight(0) * 2
-        header_height = self.horizontalHeader().height()
         total_frame_width = 2 * self.frameWidth()
-        buffer = 2  # for mac
-        height = total_row_height + header_height + total_frame_width + buffer
+        total_row_height = self.rowHeight(0) * self.rowCount()
+        header_height = self.horizontalHeader().height()
+        scroll_height = self.horizontalScrollBar().height() // 2
+        table_height = total_frame_width + total_row_height + header_height + scroll_height + BUFFER
         
-        self.setMaximumHeight(height)
-        self.setMinimumHeight(height)
+        self.setMinimumHeight(table_height)
+        self.setMaximumHeight(table_height)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         
-        self.setVerticalHeaderLabels(['min', 'max'])
     def to_list(self) -> List[Tuple[float]]:
         """
         Converts the items of a table into an array with a shape
@@ -487,6 +510,41 @@ class BoundryTable(BaseTable):
     def allowsColumnChanges(self) -> bool:
         """Whether `self` can insert/remove columns."""
         return self._allow_column_changes
+    # def resizeEvent(self, event):
+    #     QTimer.singleShot(1, self._test)
+    #     super().resizeEvent(event)
+    #     # height = None
+        
+    #     # self.blockSignals(True)
+    #     # if self.verticalScrollBar().isVisible() and self._scroll_bar_toggle == False:
+    #     #     print("Horizontal scroll bar is visible.")
+    #     #     height = self.height() + self.horizontalScrollBar().height()
+    #     #     self._scroll_bar_toggle = not self._scroll_bar_toggle
+    #     # elif self._scroll_bar_toggle == True:
+    #     #     print("Horizontal scroll bar is not visible.")
+    #     #     self._scroll_bar_toggle = not self._scroll_bar_toggle
+    #     #     total_frame_width = 2 * self.frameWidth()
+    #     #     total_row_height = self.rowHeight(0) * 2
+    #     #     header_height = self.horizontalHeader().height()
+    #     #     height = total_frame_width + total_row_height + header_height + 2
+            
+    #     # if height:
+    #     #     self.setMinimumHeight(height)
+    #     #     self.setMaximumHeight(height)
+    #     # self.blockSignals(False)
+    # def _test(self):
+    #     scrollbar = self.horizontalScrollBar()
+    #     if scrollbar.isVisible():
+    #         height = self.height() + scrollbar.height()
+    #     else:
+    #         total_frame_width = 2 * self.frameWidth()
+    #         total_row_height = self.rowHeight(0) * 2
+    #         header_height = self.horizontalHeader().height()
+    #         height = total_frame_width + total_row_height + header_height + 2
+            
+    #     self.setMinimumHeight(height)
+    #     self.setMaximumHeight(height)
+        
     
     class HeaderContextMenu(QMenu):
         def __init__(self, column: int, *args, **kwargs):
@@ -519,6 +577,8 @@ class BoundryTable(BaseTable):
             self.paste_action.triggered.connect(self.paste)
             self.insert_column_action.triggered.connect(lambda: self.insert_column(pos))
             self.remove_column_action.triggered.connect(lambda: self.remove_column(pos))
+            # self.insert_column_action.triggered.connect(self._resizeTable)
+            # self.remove_column_action.triggered.connect(self._resizeTable)
             self.clear_contents_action.triggered.connect(self.clear_contents)
             
             self.addAction(self.cut_action)
@@ -529,6 +589,17 @@ class BoundryTable(BaseTable):
             self.addAction(self.remove_column_action)
             self.addSeparator()
             self.addAction(self.clear_contents_action)
+        # def _resizeTable(self):
+        #     if self.parent().horizontalScrollBar().isVisible():
+        #         height = self.parent().height() + self.parent().horizontalScrollBar().height()
+        #     else:
+        #         total_frame_width = 2 * self.parent().frameWidth()
+        #         total_row_height = self.parent().rowHeight(0) * 2
+        #         header_height = self.parent().horizontalHeader().height()
+        #         height = total_frame_width + total_row_height + header_height + 2
+                
+        #     self.parent().setMinimumHeight(height)
+        #     self.parent().setMaximumHeight(height)
 
 
 class CandidateTable(BaseTable):

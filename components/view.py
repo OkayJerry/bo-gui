@@ -96,7 +96,7 @@ class MainView(QWidget):
         # Data
         self.x_table = XTable()
         self.y_table = YTable()
-        self.boundry_table = BoundryTable(1, 1)  # arbitrary dimensions, but necessary for row height
+        self.boundary_table = BoundaryTable(1, 1)  # arbitrary dimensions, but necessary for row height
         self.obj_func_btn = QPushButton('Apply Objective Function')
         self.obj_func_win = CustomFunctionWindow()
 
@@ -112,10 +112,13 @@ class MainView(QWidget):
                               2, 3, 1, 1)
         data_layout.addWidget(QLabel('Boundary'),
                               3, 0, 1, 3, alignment=Qt.AlignCenter)
-        data_layout.addWidget(self.boundry_table, 
+        data_layout.addWidget(self.boundary_table, 
                               4, 0, 1, 3)
         data_layout.setColumnMinimumWidth(0, 600)
         data_layout.setColumnStretch(0, 1)
+        data_layout.setRowStretch(1, 10)
+        data_layout.setRowStretch(4, 0)
+        # data_layout.setRowStretch(1, 5)
 
         
         
@@ -176,7 +179,7 @@ class MainView(QWidget):
                         self.obj_func_win,
                         self.y_table,
                         self.pending_pnt_table,
-                        self.boundry_table]
+                        self.boundary_table]
         
     def blockWidgetSignals(self, b: bool):
         """
@@ -277,14 +280,14 @@ class PlotsView(QWidget):
         self.nav_toolbar = NavigationToolbar(self.canvas, left_qwidget)
 
         # Create QSpinBox for plot history (epoch) selection
-        self.epoch_spinbox = QSpinBox()
-        self.epoch_spinbox.setMinimumWidth(50)
+        self.epoch_combobox = QComboBox()
+        self.epoch_combobox.setMinimumWidth(50)
         
         # Create QWidget to group epoch widgets together
         epoch_qwidget = QWidget()
         epoch_layout = QHBoxLayout()
         epoch_layout.addWidget(QLabel("Epoch: "), alignment=Qt.AlignRight)
-        epoch_layout.addWidget(self.epoch_spinbox)
+        epoch_layout.addWidget(self.epoch_combobox)
         epoch_qwidget.setLayout(epoch_layout)
         
         # Create QComboBox for the i-th candidate query
@@ -338,7 +341,7 @@ class PlotsView(QWidget):
                         self.query_combobox,
                         self.post_mean_button,
                         self.post_y_combobox,
-                        self.epoch_spinbox,
+                        self.epoch_combobox,
                         self.post_min_button]
         
     def blockWidgetSignals(self, b: bool):
@@ -372,57 +375,57 @@ class MenuBar(QMenuBar):
         self.prior_win = CustomFunctionWindow(parent=self)
         
         # file menu
-        new_action = QAction('&New', parent)
-        open_action = QAction('&Open...', parent)
-        save_action = QAction('&Save', parent)
-        save_as_action = QAction('&Save As...', parent)
-        preferences_action = QAction('&Preferences', parent)
-        exit_action = QAction('&Exit', parent)
+        self.new_action = QAction('&New', parent)
+        self.open_action = QAction('&Open...', parent)
+        self.save_action = QAction('&Save', parent)
+        self.save_as_action = QAction('&Save As...', parent)
+        self.preferences_action = QAction('&Preferences', parent)
+        self.exit_action = QAction('&Exit', parent)
         
-        new_action.setShortcut(QKeySequence.New)
-        open_action.setShortcut(QKeySequence.Open)
-        save_action.setShortcut(QKeySequence.Save)
-        save_as_action.setShortcut(QKeySequence.SaveAs)
-        preferences_action.setShortcut(QKeySequence.Preferences)
-        exit_action.setShortcut(QKeySequence.Quit)
+        self.new_action.setShortcut(QKeySequence.New)
+        self.open_action.setShortcut(QKeySequence.Open)
+        self.save_action.setShortcut(QKeySequence.Save)
+        self.save_as_action.setShortcut(QKeySequence.SaveAs)
+        self.preferences_action.setShortcut(QKeySequence.Preferences)
+        self.exit_action.setShortcut(QKeySequence.Quit)
         
-        new_action.triggered.connect(self.newFile.emit)
-        open_action.triggered.connect(self.openFile.emit)
-        # save_action.triggered.connect(self.saveFile.emit)
-        save_as_action.triggered.connect(self.saveAsFile.emit)
-        preferences_action.triggered.connect(self.preferences.emit)
-        exit_action.triggered.connect(sys.exit)
+        self.new_action.triggered.connect(self.newFile.emit)
+        self.open_action.triggered.connect(self.openFile.emit)
+        # self.save_action.triggered.connect(self.saveFile.emit)
+        self.save_as_action.triggered.connect(self.saveAsFile.emit)
+        self.preferences_action.triggered.connect(self.preferences.emit)
+        self.exit_action.triggered.connect(sys.exit)
 
         file_menu = self.addMenu("File")
-        file_menu.addAction(new_action)
-        file_menu.addAction(open_action)
-        # file_menu.addAction(save_action)
-        file_menu.addAction(save_as_action)
+        file_menu.addAction(self.new_action)
+        file_menu.addAction(self.open_action)
+        # file_menu.addAction(self.save_action)
+        file_menu.addAction(self.save_as_action)
         file_menu.addSeparator()
-        file_menu.addAction(preferences_action)
+        file_menu.addAction(self.preferences_action)
         file_menu.addSeparator()
-        file_menu.addAction(exit_action)
+        file_menu.addAction(self.exit_action)
 
         # edit menu
-        undo_action = QAction("&Undo", parent)
-        redo_action = QAction("&Redo", parent)
-        prior_action = QAction("&Prior Mean", parent)
-        row_count_action = QAction("&Row Count", parent)
+        self.undo_action = QAction("&Undo", parent)
+        self.redo_action = QAction("&Redo", parent)
+        self.prior_action = QAction("&Prior Mean", parent)
+        self.row_count_action = QAction("&Row Count", parent)
 
-        prior_action.triggered.connect(self.priorRequested.emit)
-        row_count_action.triggered.connect(self.rowCountChangeRequested.emit)
+        self.prior_action.triggered.connect(self.priorRequested.emit)
+        self.row_count_action.triggered.connect(self.rowCountChangeRequested.emit)
 
         # edit_menu = self.addMenu("Edit")
-        # edit_menu.addAction(prior_action)
-        # edit_menu.addAction(row_count_action)
+        # edit_menu.addAction(self.prior_action)
+        # edit_menu.addAction(self.row_count_action)
         
         # view menu
-        refresh_action = QAction("&Refresh Plots", parent)
-        refresh_action.setShortcut(QKeySequence.Refresh)
-        refresh_action.triggered.connect(self.refreshPlots.emit)
+        self.refresh_action = QAction("&Refresh Plots", parent)
+        self.refresh_action.setShortcut(QKeySequence.Refresh)
+        self.refresh_action.triggered.connect(self.refreshPlots.emit)
 
         view_menu = self.addMenu("View")
-        view_menu.addAction(refresh_action)
+        view_menu.addAction(self.refresh_action)
 
 class PreferencesWindow(QDialog):
     def __init__(self, *args, **kwargs) -> None:
@@ -464,7 +467,7 @@ class PreferencesWindow(QDialog):
 
         layout = QVBoxLayout()
         layout.addWidget(app_gb)
-        layout.addWidget(path_gb)
+        # layout.addWidget(path_gb)
         self.setLayout(layout)
         
 class CustomFunctionWindow(QDialog):

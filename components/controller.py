@@ -29,17 +29,28 @@ class Controller(QMainWindow):
     def __init__(self, app, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        TITLE: str = "BO-GUI"
-        ICON: str = "images/frib.png"
-        WIDTH: int = 640
-        HEIGHT: int = 480
+        self.TITLE: str = "BO-GUI"
+        self.ICON: str = "images/frib.png"
+        self.INITIAL_WIDTH: int = 640
+        self.INITIAL_HEIGHT: int = 480
+        
+        self.INITIAL_EPOCH: int = 0
+        self.INITIAL_NDIM: int = 4
+        self.INITIAL_BATCH_SIZE: int = 1
+        self.INITIAL_BETA: float = 2.0
+        self.INITIAL_ROW_COUNT: int = 200
+        
+        self.INITIAL_DECISION_HEADER: List[str] = [f"x[{i}]" for i in range(self.INITIAL_NDIM)]
+        self.INITIAL_OBJECTIVE_HEADER: List[str] = ["y"]
+        self.INITIAL_FIX_HEADER: List[str] = ["Fix Value"]
+        self.INITIAL_BOUNDARY_HEADER: List[str] = ["min", "max"]
                 
-        self.setWindowTitle(TITLE)
-        self.setWindowIcon(QIcon(ICON))
-        self.resize(WIDTH, HEIGHT)
+        self.setWindowTitle(self.TITLE)
+        self.setWindowIcon(QIcon(self.ICON))
+        self.resize(self.INITIAL_WIDTH, self.INITIAL_HEIGHT)
                 
         self.app = app
-        self.preferences = QSettings("Facility for Rare Isotope Beams", TITLE, parent=self)
+        self.preferences = QSettings("Facility for Rare Isotope Beams", self.TITLE, parent=self)
         self.menu_bar = MenuBar(parent=self)
         self.status_bar = QStatusBar()
         self.main = MainView()
@@ -66,27 +77,18 @@ class Controller(QMainWindow):
             self.preferences.setValue("Prior Mean Model Path", DEFAULT["Prior Mean Model Path"])
             
         self.app.setStyleSheet("QWidget {font-size: " + str(self.preferences.value("App Font Size")) + "pt;}")
-    def set_initial_states(self) -> None:
-        EPOCH: int = 0
-        NUM_DIMENSIONS: int = 4
-        BATCH_SIZE: int = 1
-        BETA: float = 2.0
-        ROW_COUNT = 200
+    def set_initial_states(self) -> None:        
+        assert self.INITIAL_EPOCH > -1
+        assert self.INITIAL_NDIM > 1
+        assert self.INITIAL_BATCH_SIZE > -1
+        assert self.INITIAL_BETA >= 0
+        assert self.INITIAL_ROW_COUNT > 0
+        assert len(self.INITIAL_DECISION_HEADER) > 0
+        assert len(self.INITIAL_OBJECTIVE_HEADER) == 1
+        assert len(self.INITIAL_FIX_HEADER) == 1
+        assert len(self.INITIAL_BOUNDARY_HEADER) == 2
         
-        assert EPOCH > -1
-        assert NUM_DIMENSIONS > 1
-        assert BATCH_SIZE > -1
-        
-        DECISION_HEADER: List[str] = [f"x[{i}]" for i in range(NUM_DIMENSIONS)]
-        OBJECTIVE_HEADER: List[str] = ["y"]
-        FIXED_HEADER: List[str] = ["Fix Value"]
-        BOUNDRY_HEADER: List[str] = ["min", "max"]
-        
-        assert len(DECISION_HEADER) > 0
-        assert len(OBJECTIVE_HEADER) == 1
-        assert len(FIXED_HEADER) == 1
-        assert len(BOUNDRY_HEADER) == 2
-        
+        self.setWindowTitle(self.TITLE)
         self.GPBO = None
         self.prior_mean_model = None
 
@@ -101,45 +103,45 @@ class Controller(QMainWindow):
         # Main Page
         self.main.blockWidgetSignals(True)
         
-        self.main.epoch_label.setText(str(EPOCH))
+        self.main.epoch_label.setText(str(self.INITIAL_EPOCH))
         self.main.plot_button.setChecked(False)
         self.main.ucb_button.setChecked(True)
         self.main.query_candidates_button.setEnabled(False)
-        self.main.batch_spin_box.setValue(BATCH_SIZE)
+        self.main.batch_spin_box.setValue(self.INITIAL_BATCH_SIZE)
         self.main.batch_spin_box.setRange(1, 100)
         self.main.batch_spin_box.setEnabled(False)
-        self.main.beta_spinbox.setValue(BETA)
+        self.main.beta_spinbox.setValue(self.INITIAL_BETA)
         self.main.beta_spinbox.setEnabled(True)
         
         self.main.candidate_pnt_table.clear()
         self.main.candidate_pnt_table.setRowCount(0)
-        self.main.candidate_pnt_table.setColumnCount(NUM_DIMENSIONS)
-        self.main.candidate_pnt_table.setHorizontalHeaderLabels(DECISION_HEADER)
+        self.main.candidate_pnt_table.setColumnCount(self.INITIAL_NDIM)
+        self.main.candidate_pnt_table.setHorizontalHeaderLabels(self.INITIAL_DECISION_HEADER)
         self.main.candidate_pnt_table.setEnabled(False)
         
         self.main.pending_pnt_table.clear()
         self.main.pending_pnt_table.setRowCount(0)
-        self.main.pending_pnt_table.setColumnCount(NUM_DIMENSIONS)
-        self.main.pending_pnt_table.setHorizontalHeaderLabels(DECISION_HEADER)
+        self.main.pending_pnt_table.setColumnCount(self.INITIAL_NDIM)
+        self.main.pending_pnt_table.setHorizontalHeaderLabels(self.INITIAL_DECISION_HEADER)
         self.main.pending_pnt_table.setEnabled(False)
         
         self.main.x_table.clear()
-        self.main.x_table.setColumnCount(NUM_DIMENSIONS)
-        self.main.x_table.setRowCount(ROW_COUNT)
-        self.main.x_table.setHorizontalHeaderLabels(DECISION_HEADER)
+        self.main.x_table.setColumnCount(self.INITIAL_NDIM)
+        self.main.x_table.setRowCount(self.INITIAL_ROW_COUNT)
+        self.main.x_table.setHorizontalHeaderLabels(self.INITIAL_DECISION_HEADER)
         self.main.x_table.enableColumnChanges(True)
             
         self.main.y_table.clear()
         self.main.y_table.setColumnCount(1)
-        self.main.y_table.setRowCount(ROW_COUNT)
-        self.main.y_table.setHorizontalHeaderLabels(OBJECTIVE_HEADER)
+        self.main.y_table.setRowCount(self.INITIAL_ROW_COUNT)
+        self.main.y_table.setHorizontalHeaderLabels(self.INITIAL_OBJECTIVE_HEADER)
 
-        self.main.boundry_table.clear()
-        self.main.boundry_table.setColumnCount(NUM_DIMENSIONS)
-        self.main.boundry_table.setRowCount(2)
-        self.main.boundry_table.setHorizontalHeaderLabels(DECISION_HEADER)
-        self.main.boundry_table.setVerticalHeaderLabels(BOUNDRY_HEADER)
-        self.main.boundry_table.enableColumnChanges(True)
+        self.main.boundary_table.clear()
+        self.main.boundary_table.setColumnCount(self.INITIAL_NDIM)
+        self.main.boundary_table.setRowCount(2)
+        self.main.boundary_table.setHorizontalHeaderLabels(self.INITIAL_DECISION_HEADER)
+        self.main.boundary_table.setVerticalHeaderLabels(self.INITIAL_BOUNDARY_HEADER)
+        self.main.boundary_table.enableColumnChanges(True)
         
         self.main.canvas.hide_axes()
         self.main.canvas.draw_idle()
@@ -149,10 +151,14 @@ class Controller(QMainWindow):
         # Plots Page
         self.plots.blockWidgetSignals(True)
         
+        self.plots.epoch_combobox.clear()
         self.plots.acq_min_button.setChecked(True)
         self.plots.post_min_button.setChecked(True)
         
         self.plots.blockWidgetSignals(True)
+        
+        # Menu Bar
+        self.menu_bar.save_as_action.setEnabled(False)
     def set_connections(self) -> None:
         
         # LOGIC
@@ -325,6 +331,7 @@ class Controller(QMainWindow):
                 return
             
             self.set_initial_states()
+            self.setWindowTitle(self.TITLE + " - " + filename)
 
             self.GPBO = interactiveGPBO(self, load_log_fname=filename)
                         
@@ -334,7 +341,7 @@ class Controller(QMainWindow):
             
             # Rotate array to fit bounds table and fill
             bounds = np.rot90(self.GPBO.bounds, k=-1)
-            self.main.boundry_table.fill(bounds)
+            self.main.boundary_table.fill(bounds)
 
             # Get candidates from GPBO.history[-1]['x1'] to put into candidate points
             
@@ -347,7 +354,7 @@ class Controller(QMainWindow):
             self.main.y_table.setHorizontalHeaderLabels(['y'])
             
             # Adjust query tables
-            for table in [self.main.candidate_pnt_table, self.main.pending_pnt_table, self.main.boundry_table]:
+            for table in [self.main.candidate_pnt_table, self.main.pending_pnt_table, self.main.boundary_table]:
                 table.setColumnCount(len(self.GPBO.bounds))
                 table.setHorizontalHeaderLabels(x_labels)
             
@@ -369,7 +376,7 @@ class Controller(QMainWindow):
                 self.main.beta_spinbox.setEnabled(False)
 
             # Ensure tables are fitted correctly
-            for tbl in [self.main.x_table, self.main.y_table, self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]:
+            for tbl in [self.main.x_table, self.main.y_table, self.main.boundary_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]:
                 tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
             self.updatedGPBO.emit(self.GPBO.epoch())
@@ -385,9 +392,10 @@ class Controller(QMainWindow):
             """
             GPBO = self.GPBO
             if not GPBO:
+                QMessageBox.critical(self, "CRITICAL", "Saving requires the model to be initialized. Initialize the model by updating the GP once.")
                 return
 
-            filename = QFileDialog.getSaveFileName(self, "Save As", filter="All Files (*.*);;JSON File (*.json);;PICKLE File (*.pickle)")[0]  # previously tuple
+            filename = QFileDialog.getSaveFileName(self, "Save As", filter="All Files (*.*);;JSON File (*.json)")[0]  # previously tuple
             path, tag = os.path.split(filename)
             path += '/' if not path.endswith('/') else ''
             
@@ -398,6 +406,8 @@ class Controller(QMainWindow):
                 for key, val in hist.items():
                     if type(val) == np.ndarray:
                         val = val.tolist()
+                    elif type(val) == list:
+                        val = [arr.tolist() if type(arr) is np.ndarray else arr for arr in val]
                     if key == 'gp':
                         hist_[key] = None
                     elif key == 'acquisition':
@@ -410,6 +420,8 @@ class Controller(QMainWindow):
                     else:
                         hist_[key] = val
                 data.append(hist_)
+                
+            print(data)
             
             if tag.endswith(".pickle"):
                 with open(path + tag, "wb") as file:
@@ -417,6 +429,8 @@ class Controller(QMainWindow):
             elif tag.endswith(".json"):
                 with open(path + tag, "w") as file:
                     json.dump(data, file)
+                    
+            self.setWindowTitle(self.TITLE + " - " + filename)
         def onOpenPreferencesRequest() -> None:
             self.menu_bar.pref_win.show()
         def app_font_size_change(size: int) -> None:
@@ -437,7 +451,7 @@ class Controller(QMainWindow):
             """
             ROW_INSERTED, ROW_REMOVED = 0, 1
             COLUMN_INSERTED, COLUMN_REMOVED = 2, 3
-            TABLES = [self.main.x_table, self.main.y_table, self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
+            TABLES = [self.main.x_table, self.main.y_table, self.main.boundary_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
 
             if command_code == ROW_INSERTED:
                 if isinstance(table, XTable):
@@ -551,7 +565,7 @@ class Controller(QMainWindow):
             """
             Since headers can be renamed, adjusts headers universally.
             """
-            HORIZONTAL_TABLES = [self.main.x_table, self.main.boundry_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
+            HORIZONTAL_TABLES = [self.main.x_table, self.main.boundary_table, self.main.candidate_pnt_table, self.main.pending_pnt_table]
             
             self.main.blockWidgetSignals(True)
             self.plots.blockWidgetSignals(True)
@@ -588,7 +602,7 @@ class Controller(QMainWindow):
             """Synchronizes horizontal scroll bar values."""
             self.main.x_table.horizontalScrollBar().setValue(value)
             self.main.y_table.horizontalScrollBar().setValue(value)
-            self.main.boundry_table.horizontalScrollBar().setValue(value)
+            self.main.boundary_table.horizontalScrollBar().setValue(value)
             self.main.candidate_pnt_table.horizontalScrollBar().setValue(value)
             self.main.pending_pnt_table.horizontalScrollBar().setValue(value)
         def onUpdatedGPBO(epoch: int) -> None:
@@ -596,9 +610,9 @@ class Controller(QMainWindow):
             print(f"Current Epoch: {epoch}")
             
             self.plot(self.main)
-            
+            print(epoch, self.GPBO.epoch())
             self.main.epoch_label.setText(str(self.GPBO.epoch()))
-            self.plots.epoch_spinbox.setMaximum(epoch)
+            self.plots.epoch_combobox.addItem(str(epoch))
             self.main.batch_spin_box.setEnabled(True)
             
             if not self.centralWidget().tabs.isTabEnabled(1):
@@ -643,7 +657,7 @@ class Controller(QMainWindow):
                         
             elif canvas_code == self.plots.CODE:
                 canvas = self.plots.canvas
-                epoch = self.plots.epoch_spinbox.value()
+                epoch = int(self.plots.epoch_combobox.currentText())
                 
                 # AXES VISIBLITY
                 if epoch < 2:
@@ -682,7 +696,7 @@ class Controller(QMainWindow):
             self.main.candidate_pnt_table.setRowCount(len(candidates))
             self.main.candidate_pnt_table.fill(candidates)
             
-            if self.plots.epoch_spinbox.value() == self.GPBO.epoch():
+            if int(self.plots.epoch_combobox.currentText()) == self.GPBO.epoch():
                 candidate_pnts = self.GPBO.history[self.GPBO.epoch()]['x1']
 
                 for i in range(1, self.plots.query_combobox.count()):
@@ -711,11 +725,13 @@ class Controller(QMainWindow):
             """
             What occurs on the transition from model initializiation to GP updates.
             """
-            self.main.x_table.enableColumnChanges(False)
-            self.main.boundry_table.enableColumnChanges(False)
             
+            # Widget Enabling
+            self.main.x_table.enableColumnChanges(False)
+            self.main.boundary_table.enableColumnChanges(False)
             self.main.candidate_pnt_table.setEnabled(True)
             self.main.pending_pnt_table.setEnabled(True)
+            self.menu_bar.save_as_action.setEnabled(True)
             
             # Migrating into "Plots" tab
             FIXED_HEADER = ["Fixed Value"]
@@ -725,9 +741,7 @@ class Controller(QMainWindow):
 
             self.plots.blockWidgetSignals(True)
 
-            self.plots.epoch_spinbox.setValue(1)
-            self.plots.epoch_spinbox.setMinimum(1)
-            self.plots.epoch_spinbox.setMaximum(1)
+            # self.plots.epoch_combobox.addItem(self.main.epoch_label.text())
             self.plots.acq_min_button.setChecked(True)
             self.plots.post_min_button.setChecked(True)
 
@@ -791,11 +805,11 @@ class Controller(QMainWindow):
         self.menu_bar.preferences.connect(onOpenPreferencesRequest)
         
         self.main.x_table.headerChanged.connect(lambda col, text: onHeaderChange(self.main.x_table, col, text))
-        self.main.boundry_table.headerChanged.connect(lambda col, text: onHeaderChange(self.main.boundry_table, col, text))
+        self.main.boundary_table.headerChanged.connect(lambda col, text: onHeaderChange(self.main.boundary_table, col, text))
 
         self.main.x_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.x_table, code, index))
         self.main.y_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.y_table, code, index))
-        self.main.boundry_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.boundry_table, code, index))
+        self.main.boundary_table.dimensionsChanged.connect(lambda code, index: onTableDimensionsChanged(self.main.boundary_table, code, index))
 
         self.main.candidate_pnt_table.selectedToDecisionRequested.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.x_table, selected=True))
         self.main.candidate_pnt_table.allToDecisionRequested.connect(lambda: movePoints(self.main.candidate_pnt_table, self.main.x_table))
@@ -807,7 +821,7 @@ class Controller(QMainWindow):
         self.main.y_table.verticalScrollBar().valueChanged.connect(self.main.x_table.verticalScrollBar().setValue)
         self.main.candidate_pnt_table.horizontalScrollBar().valueChanged.connect(onHorizontalScrollBarChange)
         self.main.pending_pnt_table.horizontalScrollBar().valueChanged.connect(onHorizontalScrollBarChange)
-        self.main.boundry_table.horizontalScrollBar().valueChanged.connect(onHorizontalScrollBarChange)
+        self.main.boundary_table.horizontalScrollBar().valueChanged.connect(onHorizontalScrollBarChange)
 
         self.main.canvas.progressUpdate.connect(self.main.progress_button.updateValue)
         self.main.canvas.progressUpdate.connect(self.plots.progress_button.updateValue)
@@ -828,10 +842,10 @@ class Controller(QMainWindow):
         self.plots.post_x_combobox.currentIndexChanged.connect(lambda: onPlotsComboBoxChange(self.plots.post_x_combobox, self.plots.post_y_combobox))
         self.plots.post_y_combobox.currentIndexChanged.connect(lambda: onPlotsComboBoxChange(self.plots.post_y_combobox, self.plots.post_x_combobox)) 
 
-        self.plots.epoch_spinbox.valueChanged.connect(onPlotsEpochChange)
+        self.plots.epoch_combobox.currentTextChanged.connect(onPlotsEpochChange)
 
         self.menu_bar.pref_win.app_font_sb.valueChanged.connect(app_font_size_change)
-        self.menu_bar.pref_win.path_log_le.editingFinished.connect(lambda: verify_path(self.menu_bar.pref_win.path_log_le))
+        # self.menu_bar.pref_win.path_log_le.editingFinished.connect(lambda: verify_path(self.menu_bar.pref_win.path_log_le))
 
     def update_GP(self) -> None:
         x = self.main.x_table.to_list()
@@ -874,7 +888,7 @@ class Controller(QMainWindow):
             raise ValueError("The GPBO needs data to be initialized.")
             
         if not hasattr(self, "GPBO") or not self.GPBO:
-            bounds = np.array(self.main.boundry_table.to_list())
+            bounds = np.array(self.main.boundary_table.to_list())
             batch_size = self.main.batch_spin_box.value()
             
             if self.main.ucb_button.isChecked():
@@ -893,7 +907,7 @@ class Controller(QMainWindow):
             epoch = self.GPBO.epoch()
         elif view is self.plots:
             query_number = int(self.plots.query_combobox.currentText()) - 1 if self.plots.query_combobox.currentText() != "All" else None
-            epoch = self.plots.epoch_spinbox.value()
+            epoch = int(self.plots.epoch_combobox.currentText())
         else:
             raise ValueError(f"Cannot plot at {view}.")
         
@@ -940,10 +954,11 @@ class Controller(QMainWindow):
         # KWARGS
         beta = self.main.beta_spinbox.value() if self.main.ucb_button.isChecked() else None
         
+        print(self.GPBO, epoch, query_number, beta, acq_xdim, acq_ydim, acq_proj_min, acq_proj_mean, acq_fixed_vals)
         def plot():
             view.canvas.clear()
             
-            if self.main.plot_button.isChecked():
+            if view is self.plots or self.main.plot_button.isChecked():
                 self.plotStarted.emit()
                 try:
                     view.canvas.plot_acquisition(self.GPBO, epoch, query_number, beta, acq_xdim, acq_ydim, acq_proj_min, acq_proj_mean, acq_fixed_vals)
@@ -952,7 +967,7 @@ class Controller(QMainWindow):
                     view.canvas.plot_acquisition(self.GPBO, epoch, query_number, beta, acq_xdim, acq_ydim, acq_proj_min, acq_proj_mean, acq_fixed_vals, overdrive=True)
                     view.canvas.plot_posterior(self.GPBO, epoch, query_number, post_xdim, post_ydim, post_proj_min, post_proj_mean, post_fixed_vals, overdrive=True)
             view.canvas.plot_obj_history(self.GPBO)  # fast
-            self.plotFinished.emit(0 if view.canvas is self.main.canvas else 1 if view.canvas is self.plots.canvas else None)
+            self.plotFinished.emit(0 if view is self.main else 1 if view is self.plots else None)
                 
         thread = threading.Thread(target=plot)
         thread.start()
